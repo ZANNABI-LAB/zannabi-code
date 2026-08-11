@@ -92,6 +92,8 @@ async function main() {
     console.error('[zannabi] 게이트가 없어 실행을 거부했습니다. --gate "name:cmd"로 지정하세요.')
   if (result.status === 'env-error')
     console.error('[zannabi] 게이트 환경 오류 — 명령이 이 환경에서 실행 가능한지 확인하세요.')
+  if (result.status === 'agent-error')
+    console.error('[zannabi] 에이전트 실행 실패 — claude 설치/로그인 상태와 transcript.jsonl의 stderr 이벤트를 확인하세요.')
   process.exit(result.status === 'success' ? 0 : 1)
 }
 

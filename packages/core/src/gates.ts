@@ -27,12 +27,15 @@ export async function runGate(gate: Gate, opts: { cwd: string }): Promise<Eviden
     })
     const outDone = collect(proc.stdout, stdoutSink)
     const errDone = collect(proc.stderr, stderrSink)
+    let killTimer: ReturnType<typeof setTimeout> | undefined
     const timer = setTimeout(() => {
       timedOut = true
       proc.kill()
+      killTimer = setTimeout(() => proc.kill(9), 1000)
     }, gate.timeoutMs)
     exitCode = await proc.exited
     clearTimeout(timer)
+    if (killTimer) clearTimeout(killTimer)
     await Promise.race([Promise.allSettled([outDone, errDone]), Bun.sleep(IO_GRACE_MS)])
   } catch {
     exitCode = null // spawn 자체 실패

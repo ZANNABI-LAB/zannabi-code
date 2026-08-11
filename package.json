@@ -2,5 +2,11 @@
   "name": "zannabi-code",
   "private": true,
   "workspaces": ["packages/*"],
-  "scripts": { "test": "bun test" }
+  "scripts": {
+    "test": "bun test",
+    "typecheck": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "bun-types": "^1.3.14"
+  }
 }

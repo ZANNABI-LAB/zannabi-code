@@ -39,3 +39,9 @@ test('타임아웃 시에도 이미 출력된 stdout을 증거로 보존', async
   expect(e.stdoutTail).toContain('progress-line')
   expect(e.durationMs).toBeLessThan(2000)
 })
+
+test('SIGTERM 무시하는 프로세스 → SIGKILL 에스컬레이션', async () => {
+  const e = await runGate(gate("trap '' TERM; sleep 30", 300), { cwd })
+  expect(e.outcome).toBe('error')
+  expect(e.durationMs).toBeLessThan(3000)
+})

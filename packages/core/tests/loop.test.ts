@@ -86,7 +86,7 @@ test('계획 단계 어댑터 실패 → env-error, 승인 호출 안 함', asyn
     adapter,
     approve: async () => { approveCalled = true; return { action: 'approve' } },
   }))
-  expect(result.status).toBe('env-error')
+  expect(result.status).toBe('agent-error')
   expect(result.attempts).toBe(0)
   expect(approveCalled).toBe(false)
 })
@@ -97,7 +97,7 @@ test('실행 단계 어댑터 실패 → env-error, 게이트 실행 안 함', a
     { ok: false, finalText: '', events: [] } as AgentResult,
   ])
   const result = await runLoop(options({ adapter }))
-  expect(result.status).toBe('env-error')
+  expect(result.status).toBe('agent-error')
   expect(result.attempts).toBe(1)
   expect(result.evidence).toHaveLength(0) // 게이트 실행 안 됨
 })
