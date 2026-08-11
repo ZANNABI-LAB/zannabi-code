@@ -31,3 +31,9 @@ test('stdout tail 채증', async () => {
   expect(e.stdoutTail).toContain('hello-evidence')
   expect(e.durationMs).toBeGreaterThanOrEqual(0)
 })
+
+test('타임아웃 시에도 이미 출력된 stdout을 증거로 보존', async () => {
+  const e = await runGate(gate('echo progress-line; sleep 5', 200), { cwd })
+  expect(e.outcome).toBe('error')
+  expect(e.stdoutTail).toContain('progress-line')
+})

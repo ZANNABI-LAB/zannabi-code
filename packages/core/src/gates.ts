@@ -14,28 +14,18 @@ export async function runGate(gate: Gate, opts: { cwd: string }): Promise<Eviden
       stdout: 'pipe',
       stderr: 'pipe',
     })
-    const exitedPromise = proc.exited
-    let timer: any
-    const timeoutPromise = new Promise<void>((resolve) => {
-      timer = setTimeout(() => {
-        timedOut = true
-        proc.kill()
-        resolve()
-      }, gate.timeoutMs)
-    })
-    await Promise.race([exitedPromise, timeoutPromise])
+    const timer = setTimeout(() => {
+      timedOut = true
+      proc.kill()
+    }, gate.timeoutMs)
+    await new Promise(r => setTimeout(r, 0))
+    exitCode = await proc.exited
     clearTimeout(timer)
-
-    // Only process exit and read streams if not timed out
-    if (!timedOut) {
-      exitCode = await proc.exited
-      // Narrow try/catch to stream reads only
-      try {
-        stdout = await new Response(proc.stdout).text()
-        stderr = await new Response(proc.stderr).text()
-      } catch {
-        // Error reading streams - don't override exitCode
-      }
+    try {
+      stdout = await new Response(proc.stdout).text()
+      stderr = await new Response(proc.stderr).text()
+    } catch {
+      // stream read failure must not override exitCode
     }
   } catch {
     exitCode = null // spawn 자체 실패
