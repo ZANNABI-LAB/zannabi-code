@@ -24,3 +24,11 @@ test('result 없는 스트림(크래시) → ok false, finalText 빈 문자열',
   expect(parsed.finalText).toBe('')
   expect(parsed.sessionId).toBe('x') // 세션은 건짐 → resume 가능
 })
+
+test('비객체 JSON 라인(null, 숫자)은 건너뛰고 유효 이벤트만 수집', () => {
+  const parsed = parseStreamJson('{"type":"system","session_id":"x"}\nnull\n123\n{"type":"result","subtype":"success","result":"ok","session_id":"x"}\n')
+  expect(parsed.ok).toBe(true)
+  expect(parsed.finalText).toBe('ok')
+  expect(parsed.events).toHaveLength(2)
+  expect(parsed.events.map(e => e.type)).toEqual(['system', 'result'])
+})

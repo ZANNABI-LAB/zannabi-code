@@ -15,12 +15,14 @@ export function parseStreamJson(raw: string): ParsedStream {
   for (const line of raw.split('\n')) {
     const trimmed = line.trim()
     if (!trimmed) continue
-    let json: Record<string, unknown>
+    let parsed: unknown
     try {
-      json = JSON.parse(trimmed)
+      parsed = JSON.parse(trimmed)
     } catch {
       continue // 외부 출력은 신뢰하지 않는다 — 깨진 라인은 건너뜀
     }
+    if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) continue
+    const json = parsed as Record<string, unknown>
     events.push({
       type: typeof json.type === 'string' ? json.type : 'unknown',
       timestamp: new Date().toISOString(),
