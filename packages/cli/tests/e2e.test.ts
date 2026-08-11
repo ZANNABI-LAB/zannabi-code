@@ -41,3 +41,37 @@ test('E2E: 승인 거부 → 종료 코드 1, 실행 없음', async () => {
   )
   expect(await proc.exited).toBe(1)
 })
+
+test('E2E: --budget이 정수가 아니면 → 종료 코드 1, 안내 메시지', async () => {
+  const project = mkdtempSync(join(tmpdir(), 'zannabi-e2e-budget-'))
+  const proc = Bun.spawn(
+    ['bun', cliPath, 'run', '테스트 작업', '--cwd', project, '--budget', 'abc'],
+    {
+      env: { ...process.env, ZANNABI_ADAPTER: 'fake' },
+      stdout: 'pipe',
+      stderr: 'pipe',
+    },
+  )
+  const exitCode = await proc.exited
+  const out = (await new Response(proc.stdout).text()) + (await new Response(proc.stderr).text())
+
+  expect(exitCode).toBe(1)
+  expect(out).toContain('--budget')
+})
+
+test('E2E: --gate 형식이 잘못되면 → 종료 코드 1, 안내 메시지', async () => {
+  const project = mkdtempSync(join(tmpdir(), 'zannabi-e2e-gate-'))
+  const proc = Bun.spawn(
+    ['bun', cliPath, 'run', '테스트 작업', '--cwd', project, '--gate', 'badformat'],
+    {
+      env: { ...process.env, ZANNABI_ADAPTER: 'fake' },
+      stdout: 'pipe',
+      stderr: 'pipe',
+    },
+  )
+  const exitCode = await proc.exited
+  const out = (await new Response(proc.stdout).text()) + (await new Response(proc.stderr).text())
+
+  expect(exitCode).toBe(1)
+  expect(out).toContain('--gate')
+})

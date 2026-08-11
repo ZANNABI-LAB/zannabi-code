@@ -52,14 +52,28 @@ async function main() {
     process.exit(1)
   }
 
+  const budget = Number(values.budget)
+  if (!Number.isInteger(budget) || budget < 1) {
+    console.error(`[zannabi] --budget은 1 이상의 정수여야 합니다: ${values.budget}`)
+    process.exit(1)
+  }
+
+  let userGates: Gate[]
+  try {
+    userGates = (values.gate as string[]).map(parseGateFlag)
+  } catch (err) {
+    console.error(`[zannabi] ${err instanceof Error ? err.message : err}`)
+    process.exit(1)
+  }
+
   const cwd = resolve(values.cwd)
   const store = new RunStore(cwd, intent)
   const { buildReport, captureDiff } = await import('./report')
 
   const result = await runLoop({
     intent,
-    userGates: (values.gate as string[]).map(parseGateFlag),
-    budget: Number(values.budget),
+    userGates,
+    budget,
     cwd,
     adapter: pickAdapter(),
     store,
