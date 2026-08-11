@@ -1,7 +1,8 @@
 import { test, expect } from 'bun:test'
-import { mkdtempSync, writeFileSync } from 'node:fs'
+import { mkdtempSync, writeFileSync, readFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import type { AgentResult } from '../src/adapter'
 import { runLoop, type LoopOptions } from '../src/loop'
 import { RunStore } from '../src/store'
 import { FakeAdapter, fakeResult } from '../src/testing'
@@ -74,4 +75,54 @@ test('게이트 0개 → no-gates, 실행 거부', async () => {
   const adapter = new FakeAdapter([fakeResult('JSON 블록 없는 계획')])
   const result = await runLoop(options({ adapter }))
   expect(result.status).toBe('no-gates')
+})
+
+test('계획 단계 어댑터 실패 → env-error, 승인 호출 안 함', async () => {
+  let approveCalled = false
+  const adapter = new FakeAdapter([
+    { ok: false, finalText: '', events: [] } as AgentResult,
+  ])
+  const result = await runLoop(options({
+    adapter,
+    approve: async () => { approveCalled = true; return { action: 'approve' } },
+  }))
+  expect(result.status).toBe('env-error')
+  expect(result.attempts).toBe(0)
+  expect(approveCalled).toBe(false)
+})
+
+test('실행 단계 어댑터 실패 → env-error, 게이트 실행 안 함', async () => {
+  const adapter = new FakeAdapter([
+    fakeResult(planText('true')),
+    { ok: false, finalText: '', events: [] } as AgentResult,
+  ])
+  const result = await runLoop(options({ adapter }))
+  expect(result.status).toBe('env-error')
+  expect(result.attempts).toBe(1)
+  expect(result.evidence).toHaveLength(0) // 게이트 실행 안 됨
+})
+
+test('사용자 게이트가 제안 게이트보다 우선됨 → success', async () => {
+  const cwd = mkdtempSync(join(tmpdir(), 'zannabi-user-gate-'))
+  const marker = join(cwd, 'user.marker')
+  writeFileSync(marker, 'ok') // 사용자 게이트는 통과하도록 미리 설정
+  const userGate = { name: 'g', cmd: `test -f ${marker}`, timeoutMs: 300000 }
+  // 제안 게이트는 실패하는 cmd
+  const adapter = new FakeAdapter([
+    fakeResult(planText('false')),
+    fakeResult('실행 완료'),
+  ])
+  const store = new RunStore(cwd, 'user-gate-test')
+  const result = await runLoop(options({
+    adapter,
+    cwd,
+    userGates: [userGate],
+    store,
+  }))
+  expect(result.status).toBe('success') // 사용자 게이트(true)가 실행됨, 제안 게이트(false)는 무시됨
+  expect(result.evidence[0][0].cmd).toBe(`test -f ${marker}`) // 실행된 게이트의 cmd가 사용자 것인지 확인
+  // goal.json에서도 사용자 게이트만 포함되었는지 확인
+  const goal = JSON.parse(readFileSync(join(store.dir, 'goal.json'), 'utf-8'))
+  expect(goal.gates).toHaveLength(1)
+  expect(goal.gates[0].cmd).toBe(`test -f ${marker}`)
 })

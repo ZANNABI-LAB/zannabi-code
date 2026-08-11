@@ -29,6 +29,7 @@ export async function runLoop(opts: LoopOptions): Promise<LoopResult> {
   opts.log('계획 수립 중')
   const plan = await opts.adapter.run({ prompt: planPrompt(opts.intent), cwd: opts.cwd })
   for (const e of plan.events) opts.store.appendTranscript(e)
+  if (!plan.ok) return { status: 'env-error', attempts: 0, evidence: [] }
   opts.store.writePlan(plan.finalText)
 
   const suggested = extractGates(plan.finalText) ?? []
@@ -57,6 +58,7 @@ export async function runLoop(opts: LoopOptions): Promise<LoopResult> {
     })
     sessionId = exec.sessionId ?? sessionId
     for (const e of exec.events) opts.store.appendTranscript(e)
+    if (!exec.ok) return { status: 'env-error', attempts: attempt, evidence: rounds }
 
     opts.log('검증 게이트 실행 중')
     const evidence: Evidence[] = []
