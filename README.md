@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="docs/assets/hero.png" alt="zannabi-code — verification-first external runner" width="100%">
+</p>
+
 # zannabi-code
 
 > **Shake the branch before you cross.** — 잔나비는 건너기 전에 가지를 흔들어본다
