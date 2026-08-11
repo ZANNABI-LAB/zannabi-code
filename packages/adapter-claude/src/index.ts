@@ -31,14 +31,28 @@ export class ClaudeAdapter implements AgentAdapter {
         stdout: 'pipe',
         stderr: 'pipe',
       })
+      // 드레인: stdout/stderr를 읽기 시작하고, 그 후 exit 대기 (64KB 버퍼 deadlock 방지)
+      const stdoutPromise = new Response(proc.stdout).text()
+      const stderrPromise = new Response(proc.stderr).text()
       const exitCode = await proc.exited
-      const raw = await new Response(proc.stdout).text()
+      const raw = await stdoutPromise
+      const stderrText = await stderrPromise
       const parsed = parseStreamJson(raw)
+      const ok = exitCode === 0 && parsed.ok
+      const events = [...parsed.events]
+      // 실패 시 진단: stderr의 마지막 4000글자를 이벤트로 추가
+      if (!ok && stderrText) {
+        events.push({
+          type: 'stderr',
+          timestamp: new Date().toISOString(),
+          payload: { text: stderrText.slice(-4000) },
+        })
+      }
       return {
-        ok: exitCode === 0 && parsed.ok,
+        ok,
         sessionId: parsed.sessionId,
         finalText: parsed.finalText,
-        events: parsed.events,
+        events,
       }
     } catch {
       return { ok: false, finalText: '', events: [] } // spawn 실패 — 증거는 없지만 크래시도 안 함

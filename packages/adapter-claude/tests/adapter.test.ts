@@ -30,3 +30,13 @@ test('바이너리 없음 → ok false (throw 아님)', async () => {
   const result = await adapter.run({ prompt: 'p', cwd: process.cwd() })
   expect(result.ok).toBe(false)
 })
+
+test('exitCode 1이면 parsed.ok가 true여도 ok false', async () => {
+  const binaryExit1 = join(import.meta.dir, 'fixtures/fake-claude-exit1.sh')
+  const adapter = new ClaudeAdapter({ binary: binaryExit1 })
+  const result = await adapter.run({ prompt: 'p', cwd: process.cwd() })
+  expect(result.ok).toBe(false)
+  expect(result.finalText).toBe('done by fake')
+  // 실패 시 stderr 진단이 events에 추가됨
+  expect(result.events.some(e => e.type === 'stderr')).toBe(true)
+})
