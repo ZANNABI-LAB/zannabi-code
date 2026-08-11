@@ -1,0 +1,7 @@
+{
+  "name": "@zannabi-lab/adapter-claude",
+  "version": "0.0.1",
+  "type": "module",
+  "module": "src/index.ts",
+  "dependencies": { "@zannabi-lab/core": "workspace:*" }
+}

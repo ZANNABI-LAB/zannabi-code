@@ -1,0 +1,10 @@
+{
+  "name": "@zannabi-lab/cli",
+  "version": "0.0.1",
+  "type": "module",
+  "bin": { "zannabi": "src/index.ts" },
+  "dependencies": {
+    "@zannabi-lab/core": "workspace:*",
+    "@zannabi-lab/adapter-claude": "workspace:*"
+  }
+}

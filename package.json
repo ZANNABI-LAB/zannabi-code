@@ -1,0 +1,6 @@
+{
+  "name": "zannabi-code",
+  "private": true,
+  "workspaces": ["packages/*"],
+  "scripts": { "test": "bun test" }
+}

@@ -1,0 +1,7 @@
+{
+  "name": "@zannabi-lab/core",
+  "version": "0.0.1",
+  "type": "module",
+  "module": "src/index.ts",
+  "dependencies": { "zod": "^3.23.0" }
+}

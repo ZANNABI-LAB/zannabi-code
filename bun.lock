@@ -1,0 +1,43 @@
+{
+  "lockfileVersion": 1,
+  "configVersion": 1,
+  "workspaces": {
+    "": {
+      "name": "zannabi-code",
+    },
+    "packages/adapter-claude": {
+      "name": "@zannabi-lab/adapter-claude",
+      "version": "0.0.1",
+      "dependencies": {
+        "@zannabi-lab/core": "workspace:*",
+      },
+    },
+    "packages/cli": {
+      "name": "@zannabi-lab/cli",
+      "version": "0.0.1",
+      "bin": {
+        "zannabi": "src/index.ts",
+      },
+      "dependencies": {
+        "@zannabi-lab/adapter-claude": "workspace:*",
+        "@zannabi-lab/core": "workspace:*",
+      },
+    },
+    "packages/core": {
+      "name": "@zannabi-lab/core",
+      "version": "0.0.1",
+      "dependencies": {
+        "zod": "^3.23.0",
+      },
+    },
+  },
+  "packages": {
+    "@zannabi-lab/adapter-claude": ["@zannabi-lab/adapter-claude@workspace:packages/adapter-claude"],
+
+    "@zannabi-lab/cli": ["@zannabi-lab/cli@workspace:packages/cli"],
+
+    "@zannabi-lab/core": ["@zannabi-lab/core@workspace:packages/core"],
+
+    "zod": ["zod@3.25.76", "", {}, "sha512-gzUt/qt81nXsFGKIFcC3YnfEAx5NkunCfnDlvuBSSFS02bcXu4Lmea0AFIUwbLWxWPx3d9p8S5QoaujKcNQxcQ=="],
+  }
+}
