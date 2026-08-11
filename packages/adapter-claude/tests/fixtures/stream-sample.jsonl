@@ -1,0 +1,4 @@
+{"type":"system","subtype":"init","session_id":"abc-123","model":"claude-fable-5"}
+{"type":"assistant","message":{"content":[{"type":"text","text":"파일을 수정하겠습니다."}]},"session_id":"abc-123"}
+이건 JSON이 아닌 깨진 라인
+{"type":"result","subtype":"success","result":"재시도 로직을 추가했습니다.","session_id":"abc-123","num_turns":3}
