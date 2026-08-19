@@ -25,3 +25,32 @@ test('extractGates: 블록 없음/깨진 JSON/스키마 불일치 → null', () 
   expect(extractGates('```json\n{broken\n```')).toBeNull()
   expect(extractGates('```json\n{"gates":[{"name":"x"}]}\n```')).toBeNull()
 })
+
+test('JSON 블록이 여러 개면 마지막 것을 쓴다', () => {
+  const text = [
+    '예시는 이렇다:',
+    '```json',
+    '{"gates":[{"name":"예시","cmd":"echo example"}]}',
+    '```',
+    '실제 제안:',
+    '```json',
+    '{"gates":[{"name":"real","cmd":"bun test"}]}',
+    '```',
+  ].join('\n')
+  const gates = extractGates(text)
+  expect(gates).toHaveLength(1)
+  expect(gates![0].name).toBe('real')
+})
+
+test('마지막 블록이 게이트가 아니면 앞쪽 블록을 본다', () => {
+  const text = [
+    '```json',
+    '{"gates":[{"name":"real","cmd":"bun test"}]}',
+    '```',
+    '참고 설정:',
+    '```json',
+    '{"unrelated": true}',
+    '```',
+  ].join('\n')
+  expect(extractGates(text)![0].name).toBe('real')
+})

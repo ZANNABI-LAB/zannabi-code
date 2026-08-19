@@ -92,11 +92,9 @@ test('계획 단계 어댑터 실패 → env-error, 승인 호출 안 함', asyn
   expect(approveCalled).toBe(false)
 })
 
-test('실행 단계 어댑터 실패 → env-error, 게이트 실행 안 함', async () => {
-  const adapter = new FakeAdapter([
-    fakeResult(planText('true')),
-    { ok: false, finalText: '', events: [] } as AgentResult,
-  ])
+test('실행 단계 어댑터 실패 → 복구 시도 후에도 실패하면 agent-error, 게이트 실행 안 함', async () => {
+  const failed = { ok: false, finalText: '', events: [] } as AgentResult
+  const adapter = new FakeAdapter([fakeResult(planText('true')), failed, failed])
   const result = await runLoop(options({ adapter }))
   expect(result.status).toBe('agent-error')
   expect(result.attempts).toBe(1)
@@ -169,4 +167,25 @@ test('env-error는 어느 게이트가 깨졌는지 detail에 남긴다', async 
   const result = await runLoop(options({ adapter }))
   expect(result.status).toBe('env-error')
   expect(result.detail).toContain('definitely-not-a-command-xyz')
+})
+
+test('실행 크래시 → --resume으로 한 번 복구 시도, 성공하면 예산 소모 없음', async () => {
+  const adapter = new FakeAdapter([
+    fakeResult(planText('true')),
+    { ok: false, finalText: '', events: [], sessionId: 's1', errorReason: '끊김' },
+    fakeResult('복구 후 실행'),
+  ])
+  const result = await runLoop(options({ adapter }))
+  expect(result.status).toBe('success')
+  expect(result.attempts).toBe(1) // 복구는 재시도 예산을 쓰지 않는다
+  expect(adapter.requests[2].resumeSessionId).toBe('s1')
+})
+
+test('복구도 실패하면 agent-error — 무한 재시도하지 않는다', async () => {
+  const failed = { ok: false, finalText: '', events: [], sessionId: 's1', errorReason: '끊김' }
+  const adapter = new FakeAdapter([fakeResult(planText('true')), failed, failed])
+  const result = await runLoop(options({ adapter }))
+  expect(result.status).toBe('agent-error')
+  expect(result.detail).toBe('끊김')
+  expect(adapter.requests).toHaveLength(3) // 계획 + 실행 + 복구 1회
 })

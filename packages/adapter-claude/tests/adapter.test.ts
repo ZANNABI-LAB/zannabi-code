@@ -40,3 +40,29 @@ test('exitCode 1이면 parsed.ok가 true여도 ok false', async () => {
   // 실패 시 stderr 진단이 events에 추가됨
   expect(result.events.some(e => e.type === 'stderr')).toBe(true)
 })
+
+test('출력이 끊긴 채 멈추면 종료시키고 사유를 남긴다', async () => {
+  const adapter = new ClaudeAdapter({
+    binary: join(import.meta.dir, 'fixtures/fake-claude-hang.sh'),
+    idleTimeoutMs: 300,
+  })
+  const started = Date.now()
+  const result = await adapter.run({ prompt: 'p', cwd: process.cwd() })
+
+  expect(result.ok).toBe(false)
+  expect(result.errorReason).toContain('에이전트 행')
+  expect(Date.now() - started).toBeLessThan(10_000) // 30초를 기다리지 않는다
+  expect(result.sessionId).toBe('hung-session') // 끊기기 전까지의 증거는 보존
+})
+
+test('--model 옵션이 인자로 전달된다', () => {
+  const args = new ClaudeAdapter({ model: 'claude-opus-5' }).buildArgs({ prompt: 'p', cwd: '/tmp' })
+  expect(args).toContain('--model')
+  expect(args).toContain('claude-opus-5')
+})
+
+test('행 감시가 정상 실행을 방해하지 않는다', async () => {
+  const adapter = new ClaudeAdapter({ binary, idleTimeoutMs: 5_000 })
+  const result = await adapter.run({ prompt: 'p', cwd: process.cwd() })
+  expect(result.ok).toBe(true)
+})

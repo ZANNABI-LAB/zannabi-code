@@ -131,4 +131,8 @@ async function main() {
   process.exit(result.status === 'success' ? 0 : 1)
 }
 
-main()
+main().catch(err => {
+  // 처리되지 않은 예외가 조용한 비정상 종료로 새지 않게 한다
+  console.error(`[zannabi] 예기치 못한 오류: ${err instanceof Error ? (err.stack ?? err.message) : err}`)
+  process.exit(1)
+})

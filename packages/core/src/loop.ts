@@ -66,13 +66,20 @@ export async function runLoop(opts: LoopOptions): Promise<LoopResult> {
 
   for (let attempt = 1; attempt <= opts.budget; attempt++) {
     opts.log(`시도 ${attempt}/${opts.budget}: 실행 중`)
-    const exec = await opts.adapter.run({
-      prompt: executePrompt(plan.finalText, feedback),
-      cwd: opts.cwd,
-      resumeSessionId: sessionId,
-    })
+    const prompt = executePrompt(plan.finalText, feedback)
+    let exec = await opts.adapter.run({ prompt, cwd: opts.cwd, resumeSessionId: sessionId })
     sessionId = exec.sessionId ?? sessionId
     for (const e of exec.events) opts.store.appendTranscript(e)
+
+    // 크래시 복구(설계 §7): 이어갈 세션이 있으면 --resume으로 한 번만 다시 시도한다.
+    // 재시도 예산은 게이트 불통과를 위한 것이므로 여기서 소모하지 않는다
+    if (!exec.ok && sessionId) {
+      opts.log('에이전트 실패 — 세션 복구 시도')
+      exec = await opts.adapter.run({ prompt, cwd: opts.cwd, resumeSessionId: sessionId })
+      sessionId = exec.sessionId ?? sessionId
+      for (const e of exec.events) opts.store.appendTranscript(e)
+    }
+
     if (!exec.ok)
       return { status: 'agent-error', attempts: attempt, evidence: rounds, detail: exec.errorReason }
 

@@ -6,7 +6,7 @@
 
 [![license](https://img.shields.io/badge/license-Apache--2.0-blue)](LICENSE)
 [![runtime](https://img.shields.io/badge/runtime-Bun-black)](https://bun.sh)
-[![tests](https://img.shields.io/badge/tests-60%20passing-brightgreen)]()
+[![tests](https://img.shields.io/badge/tests-67%20passing-brightgreen)]()
 
 > **Shake the branch before you cross.** — 잔나비는 건너기 전에 가지를 흔들어본다
 
@@ -70,7 +70,7 @@ zannabi run "작업 설명" --cwd /path/to/project --gate "test:bun test" --budg
 ## 개발
 
 ```bash
-bun test        # 60개
+bun test        # 67개
 bun run typecheck
 ```
 
