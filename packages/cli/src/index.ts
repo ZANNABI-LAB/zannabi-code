@@ -19,7 +19,12 @@ function parseGateFlag(value: string): Gate {
   return GateSchema.parse({ name: value.slice(0, idx), cmd: value.slice(idx + 1) })
 }
 
-function pickAdapter(agent: AgentName, model?: string): AgentAdapter {
+interface RuntimeChoice {
+  agent: AgentName
+  model?: string
+}
+
+function pickAdapter({ agent, model }: RuntimeChoice): AgentAdapter {
   if (process.env.ZANNABI_ADAPTER === 'fake') {
     // E2E용: 계획(게이트 true 제안) + 실행 응답
     return new FakeAdapter([
@@ -28,6 +33,11 @@ function pickAdapter(agent: AgentName, model?: string): AgentAdapter {
     ])
   }
   return agent === 'codex' ? new CodexAdapter({ model }) : new ClaudeAdapter({ model })
+}
+
+/** 증거에 남길 표기. 모델을 지정 안 했으면 CLI 기본값이라는 뜻으로 default를 적는다 */
+function label({ agent, model }: RuntimeChoice): string {
+  return `${agent}:${model ?? 'default'}`
 }
 
 function printPlan(plan: string, gates: Gate[], warnings: GateWarning[]) {
@@ -79,6 +89,10 @@ async function main() {
       gate: { type: 'string', multiple: true, default: [] },
       model: { type: 'string' },
       agent: { type: 'string', default: 'claude' },
+      'plan-agent': { type: 'string' },
+      'plan-model': { type: 'string' },
+      'exec-agent': { type: 'string' },
+      'exec-model': { type: 'string' },
       yes: { type: 'boolean', default: false },
     },
   })
@@ -86,15 +100,28 @@ async function main() {
   if (command !== 'run' || !intent) {
     console.error(
       '사용법: zannabi run "<작업 설명>" [--cwd .] [--budget 3] [--gate "name:cmd"]' +
-      ` [--agent ${AGENTS.join('|')}] [--model <이름>] [--yes]`,
+      ` [--agent ${AGENTS.join('|')}] [--model <이름>] [--yes]\n` +
+      '  생성-검증 분리: [--plan-agent/--plan-model] [--exec-agent/--exec-model]',
     )
     process.exit(1)
   }
 
-  const agent = values.agent as AgentName
-  if (!AGENTS.includes(agent)) {
-    console.error(`[zannabi] --agent는 ${AGENTS.join(' | ')} 중 하나여야 합니다: ${values.agent}`)
+  // 사용자가 실제로 쓴 플래그를 짚어야 고칠 자리를 안다
+  for (const flag of ['agent', 'plan-agent', 'exec-agent'] as const) {
+    const given = values[flag]
+    if (given === undefined || AGENTS.includes(given as AgentName)) continue
+    console.error(`[zannabi] --${flag}는 ${AGENTS.join(' | ')} 중 하나여야 합니다: ${given}`)
     process.exit(1)
+  }
+
+  // --agent/--model이 기본값이고, plan/exec 쪽이 지정되면 그 턴만 덮어쓴다
+  const plan: RuntimeChoice = {
+    agent: (values['plan-agent'] ?? values.agent) as AgentName,
+    model: values['plan-model'] ?? values.model,
+  }
+  const exec: RuntimeChoice = {
+    agent: (values['exec-agent'] ?? values.agent) as AgentName,
+    model: values['exec-model'] ?? values.model,
   }
 
   const budget = Number(values.budget)
@@ -120,7 +147,10 @@ async function main() {
     userGates,
     budget,
     cwd,
-    adapter: pickAdapter(agent, values.model),
+    adapter: pickAdapter(plan),
+    // 조합이 같으면 어댑터 하나만 쓴다 — 같은 런타임인데 세션이 끊기면 손해다
+    execAdapter: label(plan) === label(exec) ? undefined : pickAdapter(exec),
+    runtime: { plan: label(plan), exec: label(exec) },
     store,
     approve: values.yes ? approveAutomatically : approveViaTerminal,
     log: message => console.log(`[zannabi] ${message}`),

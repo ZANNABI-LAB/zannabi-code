@@ -131,7 +131,7 @@ test('어댑터 사전점검 실패 → 계획 호출 없이 agent-error + 사�
   ;(adapter as AgentAdapter).preflight = async () => ({ ok: false, detail: '로그인 필요' })
   const result = await runLoop(options({ adapter }))
   expect(result.status).toBe('agent-error')
-  expect(result.detail).toBe('로그인 필요')
+  expect(result.detail).toBe('[fake] 로그인 필요') // 어느 어댑터인지 함께 남긴다
   expect(adapter.requests).toHaveLength(0) // 계획 비용조차 쓰지 않음
 })
 
@@ -188,4 +188,64 @@ test('복구도 실패하면 agent-error — 무한 재시도하지 않는다', 
   expect(result.status).toBe('agent-error')
   expect(result.detail).toBe('끊김')
   expect(adapter.requests).toHaveLength(3) // 계획 + 실행 + 복구 1회
+})
+
+test('생성-검증 분리: 계획은 plan 어댑터, 실행은 exec 어댑터가 맡는다', async () => {
+  const planner = new FakeAdapter([fakeResult(planText('true'))])
+  const executor = new FakeAdapter([fakeResult('실행했음', 'exec-session')])
+  const result = await runLoop(options({ adapter: planner, execAdapter: executor }))
+
+  expect(result.status).toBe('success')
+  expect(planner.requests).toHaveLength(1) // 계획만
+  expect(executor.requests).toHaveLength(1) // 실행만
+  expect(planner.requests[0].prompt).toContain('Do NOT modify any files')
+  expect(executor.requests[0].prompt).toContain('Execute this plan')
+})
+
+test('분리 실행이면 계획 세션을 실행 턴으로 넘기지 않는다', async () => {
+  // 계획 세션 's1'은 계획 런타임의 것이라 다른 런타임이 이어받을 수 없다
+  const planner = new FakeAdapter([fakeResult(planText('true'), 's1')])
+  const executor = new FakeAdapter([fakeResult('실행', 'exec-1')])
+  await runLoop(options({ adapter: planner, execAdapter: executor }))
+
+  expect(executor.requests[0].resumeSessionId).toBeUndefined()
+})
+
+test('분리 실행에서도 실행 턴끼리는 세션을 이어간다', async () => {
+  const cwd = mkdtempSync(join(tmpdir(), 'zannabi-split-'))
+  const marker = join(cwd, 'done.marker')
+  const planner = new FakeAdapter([fakeResult(planText(`test -f ${marker}`))])
+  const executor = new FakeAdapter(
+    [fakeResult('1차', 'exec-1'), fakeResult('2차', 'exec-1')],
+    (_req, i) => { if (i === 1) writeFileSync(marker, 'ok') },
+  )
+  const result = await runLoop(options({
+    adapter: planner, execAdapter: executor, cwd, store: new RunStore(cwd, 'split'),
+  }))
+
+  expect(result.status).toBe('success')
+  expect(executor.requests[1].resumeSessionId).toBe('exec-1') // 실행 런타임 자신의 세션
+})
+
+test('분리 실행이면 양쪽 어댑터를 모두 사전점검한다', async () => {
+  const planner = new FakeAdapter([fakeResult(planText('true'))])
+  const executor = new FakeAdapter([fakeResult('실행')])
+  ;(executor as AgentAdapter).preflight = async () => ({ ok: false, detail: 'codex 로그인 필요' })
+
+  const result = await runLoop(options({ adapter: planner, execAdapter: executor }))
+  expect(result.status).toBe('agent-error')
+  expect(result.detail).toContain('codex 로그인 필요')
+  expect(planner.requests).toHaveLength(0) // 계획 비용을 쓰기 전에 막는다
+})
+
+test('runtime 표기가 결과와 goal.json에 남는다', async () => {
+  const cwd = mkdtempSync(join(tmpdir(), 'zannabi-runtime-'))
+  const store = new RunStore(cwd, 'runtime')
+  const adapter = new FakeAdapter([fakeResult(planText('true')), fakeResult('했음')])
+  const runtime = { plan: 'claude:opus-5', exec: 'codex:gpt-5.4' }
+  const result = await runLoop(options({ adapter, cwd, store, runtime }))
+
+  expect(result.runtime).toEqual(runtime)
+  const goal = JSON.parse(readFileSync(join(store.dir, 'goal.json'), 'utf-8'))
+  expect(goal.runtime).toEqual(runtime)
 })

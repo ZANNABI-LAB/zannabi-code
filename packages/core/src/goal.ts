@@ -7,10 +7,17 @@ export const GateSchema = z.object({
 })
 export type Gate = z.infer<typeof GateSchema>
 
+/** 어떤 런타임 조합으로 돌았는지. 증거만 보고 재현할 수 있어야 한다 */
+export const RuntimeSchema = z.object({
+  plan: z.string(),
+  exec: z.string(),
+})
+
 export const GoalSchema = z.object({
   intent: z.string().min(1),
   gates: z.array(GateSchema),
   budget: z.number().int().min(1).default(3),
+  runtime: RuntimeSchema.optional(),
 })
 export type Goal = z.infer<typeof GoalSchema>
 

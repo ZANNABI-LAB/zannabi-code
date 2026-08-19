@@ -123,3 +123,30 @@ test('E2E: --agent 값이 잘못되면 → 종료 코드 1, 안내 메시지', a
   expect(exitCode).toBe(1)
   expect(out).toContain('--agent')
 })
+
+test('E2E: --exec-agent 값이 잘못되면 그 플래그를 짚어준다', async () => {
+  const project = mkdtempSync(join(tmpdir(), 'zannabi-e2e-exec-agent-'))
+  const proc = Bun.spawn(
+    ['bun', cliPath, 'run', '테스트 작업', '--cwd', project, '--exec-agent', 'gpt'],
+    { env: { ...process.env, ZANNABI_ADAPTER: 'fake' }, stdout: 'pipe', stderr: 'pipe' },
+  )
+  const exitCode = await proc.exited
+  const out = (await new Response(proc.stdout).text()) + (await new Response(proc.stderr).text())
+
+  expect(exitCode).toBe(1)
+  expect(out).toContain('--exec-agent')
+})
+
+test('E2E: 분리 실행이면 runtime 표기가 report.md에 남는다', async () => {
+  const project = mkdtempSync(join(tmpdir(), 'zannabi-e2e-runtime-'))
+  const proc = Bun.spawn(
+    ['bun', cliPath, 'run', '테스트 작업', '--cwd', project, '--yes',
+     '--plan-agent', 'claude', '--exec-agent', 'codex'],
+    { env: { ...process.env, ZANNABI_ADAPTER: 'fake' }, stdin: 'ignore', stdout: 'pipe', stderr: 'pipe' },
+  )
+  await proc.exited
+  const out = await new Response(proc.stdout).text()
+
+  expect(out).toContain('plan=`claude:default`')
+  expect(out).toContain('exec=`codex:default`')
+})

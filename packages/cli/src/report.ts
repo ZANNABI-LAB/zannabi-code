@@ -11,6 +11,9 @@ export function buildReport(result: LoopResult, intent: string): string {
     `- **status**: ${result.status}`,
     `- **attempts**: ${result.attempts}`,
   ]
+  // 어떤 조합으로 돌았는지 — 조합별 비교의 기본 축
+  if (result.runtime)
+    lines.push(`- **runtime**: plan=\`${result.runtime.plan}\` exec=\`${result.runtime.exec}\``)
   // 실패 사유를 리포트에 싣는다 — transcript.jsonl을 파싱하지 않아도 원인이 보이게
   if (result.detail) lines.push(`- **detail**: ${result.detail}`)
   lines.push(``, `## Gates (최종 라운드)`, ``)

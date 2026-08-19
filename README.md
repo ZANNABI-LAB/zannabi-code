@@ -6,7 +6,7 @@
 
 [![license](https://img.shields.io/badge/license-Apache--2.0-blue)](LICENSE)
 [![runtime](https://img.shields.io/badge/runtime-Bun-black)](https://bun.sh)
-[![tests](https://img.shields.io/badge/tests-83%20passing-brightgreen)]()
+[![tests](https://img.shields.io/badge/tests-90%20passing-brightgreen)]()
 
 > **Shake the branch before you cross.** — 잔나비는 건너기 전에 가지를 흔들어본다
 
@@ -46,7 +46,21 @@ zannabi run "작업 설명" --cwd /path/to/project --gate "test:bun test" --budg
 | `--budget <N>` | 재시도 횟수 (기본 3) |
 | `--agent claude\|codex` | 구동할 코딩 에이전트 (기본 claude) |
 | `--model <이름>` | 에이전트 모델 지정 |
+| `--plan-agent` · `--plan-model` | 계획 턴만 다른 런타임/모델로 |
+| `--exec-agent` · `--exec-model` | 실행 턴만 다른 런타임/모델로 |
 | `--yes` | 승인 프롬프트를 건너뛴다 (배치 실행용) |
+
+**생성-검증 분리.** 계획과 실행에 다른 런타임을 쓸 수 있다.
+
+```bash
+zannabi run "..." --plan-model claude-opus-5 --exec-model claude-haiku-4-5-20251001
+zannabi run "..." --plan-agent claude --exec-agent codex
+```
+
+판정은 어차피 게이트가 하므로, 강한 모델이 계획하고 저가 모델이 실행해도 품질이 유지되는가 —
+이것이 "생성은 싸고 검증이 병목"이라는 이 프로젝트의 베팅이고, 이 옵션이 그걸 재는 손잡이다.
+어떤 조합으로 돌았는지는 `goal.json`과 `report.md`의 `runtime` 에 남는다.
+계획 세션은 계획 런타임의 것이므로 분리 실행이면 실행 턴으로 넘기지 않는다 (계획 내용 자체는 프롬프트에 담긴다).
 
 **`--yes` 주의.** 설계상 사람의 승인은 유일한 개입 지점이다. 이를 건너뛰는 대신 러너가
 게이트의 실행 가능성을 먼저 확인하고, 실행할 수 없는 게이트가 있으면 거부한다.
@@ -55,7 +69,7 @@ zannabi run "작업 설명" --cwd /path/to/project --gate "test:bun test" --budg
 ## 증거 디렉토리
 
 `plan.md`(승인된 계획) · `goal.json`(intent/게이트/예산) · `transcript.jsonl`(에이전트 이벤트)
-· `evidence.json`(라운드별 게이트 결과) · `diff.patch`(변경분) · `report.md`(요약·실패 사유)
+· `evidence.json`(라운드별 게이트 결과) · `diff.patch`(변경분) · `report.md`(요약·실패 사유·런타임 조합)
 
 `diff.patch` 는 **신규 파일을 포함**한다. 이를 위해 인덱스가 필요하지만 러너는 대상 저장소의
 인덱스를 건드리지 않는다 — 실제 인덱스를 임시 파일로 복사해 쓰므로 스테이징 상태는 그대로다.
@@ -76,7 +90,7 @@ core 변경분은 두 어댑터가 공유하는 프로세스 구동 배관을 �
 ## 개발
 
 ```bash
-bun test        # 83개
+bun test        # 90개
 bun run typecheck
 ```
 
