@@ -1,6 +1,16 @@
-import type { AgentEvent, ParsedAgentStream } from '@zannabi-lab/core'
+import { readUsage, type AgentEvent, type ParsedAgentStream, type Usage } from '@zannabi-lab/core'
 
 const REASON_CHARS = 300
+
+/**
+ * `turn.completed`의 usage 필드명. codex는 **비용을 보고하지 않으므로** costUsd가 비고,
+ * 그 사실이 그대로 리포트에 드러난다 (0원으로 채우지 않는다).
+ */
+const USAGE_KEYS = {
+  input: ['input_tokens'],
+  output: ['output_tokens'],
+  cached: ['cached_input_tokens'],
+}
 
 /**
  * `codex exec --json` 의 JSONL 이벤트를 해석한다. 실측한 형태:
@@ -19,6 +29,7 @@ export function parseCodexStream(raw: string): ParsedAgentStream {
   let ok = false
   let sawTurnEnd = false
   let errorReason: string | undefined
+  let usage: Usage | undefined
 
   for (const line of raw.split('\n')) {
     const trimmed = line.trim()
@@ -50,7 +61,11 @@ export function parseCodexStream(raw: string): ParsedAgentStream {
     if (json.type === 'turn.completed') {
       sawTurnEnd = true
       ok = true
+      usage = readUsage(json.usage, USAGE_KEYS) ?? usage
     }
+
+    // 실패한 턴도 자원을 쓴다 — 실패 비용은 조합 비교에 꼭 필요한 값이라 함께 거둔다
+    if (json.type === 'turn.failed') usage = readUsage(json.usage, USAGE_KEYS) ?? usage
 
     if (json.type === 'turn.failed') {
       sawTurnEnd = true
@@ -66,7 +81,7 @@ export function parseCodexStream(raw: string): ParsedAgentStream {
   }
 
   if (!sawTurnEnd) errorReason ??= 'turn 종료 이벤트 없음 (스트림이 완료 전에 끊김)'
-  return { sessionId, finalText, ok, events, errorReason: ok ? undefined : errorReason }
+  return { sessionId, finalText, ok, events, errorReason: ok ? undefined : errorReason, usage }
 }
 
 /** codex는 오류 본문에 JSON을 통째로 넣기도 한다 — 한 줄로 줄인다 */

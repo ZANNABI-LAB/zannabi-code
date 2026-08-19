@@ -2,6 +2,7 @@ import { test, expect } from 'bun:test'
 import { mkdtempSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import type { Round } from '@zannabi-lab/core'
 import { captureDiff, buildReport } from '../src/report'
 
 async function sh(cmd: string, cwd: string) {
@@ -70,15 +71,39 @@ test('git 저장소가 아니면 조용히 빈 문자열', async () => {
 
 test('실패 사유가 report.md에 실린다', () => {
   const report = buildReport(
-    { status: 'agent-error', attempts: 1, evidence: [], detail: 'exit 1 | result=error_auth' },
+    { status: 'agent-error', attempts: 1, rounds: [], detail: 'exit 1 | result=error_auth' },
     '작업',
   )
   expect(report).toContain('**detail**: exit 1 | result=error_auth')
 })
 
 test('사유가 없으면 detail 줄도 없다', () => {
-  const report = buildReport({ status: 'success', attempts: 1, evidence: [[]] }, '작업')
+  const report = buildReport(
+    { status: 'success', attempts: 1, rounds: [round(1, 'aaa')] },
+    '작업',
+  )
   expect(report).not.toContain('detail')
+})
+
+const round = (n: number, diffHash: string, repeatOf?: number): Round => ({
+  round: n,
+  revision: { tracked: true, head: 'c0ffee', diffHash },
+  evidence: [],
+  repeatOf,
+})
+
+test('라운드가 여럿이면 라운드별 diff 해시와 반복 여부가 실린다', () => {
+  const report = buildReport(
+    {
+      status: 'no-progress',
+      attempts: 3,
+      rounds: [round(1, 'aaa'), round(2, 'bbb'), round(3, 'bbb', 2)],
+    },
+    '작업',
+  )
+  expect(report).toContain('- **head**: `c0ffee`')
+  expect(report).toContain('1: diff `aaa`')
+  expect(report).toContain('3: diff `bbb`, gates 0/0 pass — 라운드 2과 동일')
 })
 
 test('증거 디렉토리(.zannabi)는 diff에 섞이지 않는다', async () => {
@@ -98,4 +123,42 @@ test('저장소 하위 디렉토리를 cwd로 줘도 저장소 전체를 담는�
 
   const diff = await captureDiff(join(cwd, 'sub'))
   expect(diff).toContain('root-new.ts')
+})
+
+test('사용량은 계획/실행으로 나뉘고, 비용을 안 주는 러너는 0원이 아니라 -로 남는다', () => {
+  const report = buildReport(
+    {
+      status: 'success',
+      attempts: 1,
+      rounds: [round(1, 'aaa')],
+      usage: {
+        plan: { inputTokens: 1000, outputTokens: 200, costUsd: 0.25, turns: 1 },
+        exec: { inputTokens: 500, outputTokens: 100, turns: 2 },
+      },
+    },
+    '작업',
+  )
+  expect(report).toContain('| plan | 1 | 1,000 | 0 | 200 | $0.2500 |')
+  expect(report).toContain('| exec | 2 | 500 | 0 | 100 | - |')
+  // 한쪽만 비용을 알면 합계도 아는 만큼만 적는다
+  expect(report).toContain('| 합계 | 3 | 1,500 | 0 | 300 | $0.2500 |')
+})
+
+test('게이트 줄에 출처와 flaky 표시가 붙는다', () => {
+  const evidence = [
+    {
+      gate: 'u', cmd: 'true', source: 'user' as const, outcome: 'pass' as const, exitCode: 0,
+      stdoutTail: '', stderrTail: '', durationMs: 1, timestamp: '',
+    },
+  ]
+  const report = buildReport(
+    {
+      status: 'flaky-gate',
+      attempts: 1,
+      rounds: [{ ...round(1, 'aaa'), evidence, flaky: ['u'] }],
+    },
+    '작업',
+  )
+  expect(report).toContain('사용자')
+  expect(report).toContain('🎲 flaky')
 })

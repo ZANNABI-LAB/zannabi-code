@@ -1,9 +1,23 @@
 import { z } from 'zod'
 
+export const DEFAULT_GATE_TIMEOUT_MS = 300_000
+
+/**
+ * 게이트의 출처. 기본이 `suggested`인 것은 이 스키마로 파싱되는 것이 대개
+ * 에이전트가 계획에 적어 낸 JSON 블록이기 때문이다 — 사용자 게이트는 CLI가 명시적으로 표시한다.
+ *
+ * 왜 나누는가: 사용자가 건 게이트는 **완료의 정의**고 에이전트가 제안한 게이트는 **자기 검사**다.
+ * 둘을 한 통에 담으면 "완료 기준은 다 만족했는데 자기가 건 불가능한 게이트로 죽은" 실행이
+ * 그냥 실패로 보인다. 실제로 그런 실행이 있었다.
+ */
+export const GateSourceSchema = z.enum(['user', 'suggested'])
+export type GateSource = z.infer<typeof GateSourceSchema>
+
 export const GateSchema = z.object({
   name: z.string().min(1),
   cmd: z.string().min(1),
-  timeoutMs: z.number().int().positive().default(300_000),
+  timeoutMs: z.number().int().positive().default(DEFAULT_GATE_TIMEOUT_MS),
+  source: GateSourceSchema.default('suggested'),
 })
 export type Gate = z.infer<typeof GateSchema>
 
@@ -18,20 +32,64 @@ export const GoalSchema = z.object({
   gates: z.array(GateSchema),
   budget: z.number().int().min(1).default(3),
   runtime: RuntimeSchema.optional(),
+  /** 루프를 지배한 설정. 증거만 보고 같은 조건을 다시 세울 수 있어야 한다 */
+  loop: z
+    .object({
+      stallLimit: z.number().int().min(0),
+      verifyRepeat: z.number().int().min(1),
+      rejectSuggested: z.boolean(),
+    })
+    .optional(),
 })
 export type Goal = z.infer<typeof GoalSchema>
+
+/**
+ * 증거가 딛고 선 워킹트리 상태. `tracked: false`면 git으로 읽을 수 없었다는 뜻이고,
+ * 그때는 head/diffHash가 없다 — 없는 것을 빈 문자열로 위장하면 "변경 없음"과 구별되지 않는다.
+ */
+export const RevisionSchema = z.object({
+  tracked: z.boolean(),
+  /** HEAD 커밋 sha. 커밋이 아직 없는 저장소면 null */
+  head: z.string().nullable(),
+  /** 미추적 파일까지 포함한 변경분의 sha256 앞 16자 */
+  diffHash: z.string().nullable(),
+})
+export type Revision = z.infer<typeof RevisionSchema>
 
 export const EvidenceSchema = z.object({
   gate: z.string(),
   cmd: z.string(),
+  /** 이 게이트가 완료의 정의였는지(user) 에이전트의 자기 검사였는지(suggested) */
+  source: GateSourceSchema.default('suggested'),
   outcome: z.enum(['pass', 'fail', 'error']),
   exitCode: z.number().nullable(),
   stdoutTail: z.string(),
   stderrTail: z.string(),
   durationMs: z.number(),
   timestamp: z.string(),
+  /** 이 증거가 어떤 리비전에서 나왔는지(설계 §5). 증거 한 줄만 떼어 봐도 대상이 특정돼야 한다 */
+  revision: RevisionSchema.optional(),
 })
 export type Evidence = z.infer<typeof EvidenceSchema>
+
+/**
+ * 한 번의 EXECUTE → VERIFY 사이클.
+ *
+ * 라운드를 명시적 레코드로 만든 이유: 증거만 나열하면 "몇 라운드째의 증거인지"와
+ * "그 사이 파일이 바뀌었는지"가 사라진다. no-progress 판정은 정확히 그 둘을 본다.
+ */
+export const RoundSchema = z.object({
+  round: z.number().int().positive(),
+  revision: RevisionSchema,
+  evidence: z.array(EvidenceSchema),
+  /** 리비전과 게이트 결과가 모두 같았던 앞선 라운드 번호. 없으면 진전이 있었다는 뜻 */
+  repeatOf: z.number().int().positive().optional(),
+  /** 통과를 재확인하려고 게이트를 더 돌린 결과. 원본 증거를 덮어쓰지 않고 나란히 남긴다 */
+  recheck: z.array(EvidenceSchema).optional(),
+  /** 재확인에서 결과가 갈린 게이트 이름들. 비어 있지 않으면 그 통과는 증거가 아니다 */
+  flaky: z.array(z.string()).optional(),
+})
+export type Round = z.infer<typeof RoundSchema>
 
 const gatesBlock = z.object({ gates: z.array(GateSchema) })
 

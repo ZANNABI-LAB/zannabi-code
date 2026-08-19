@@ -4,7 +4,8 @@ import { parseArgs } from 'node:util'
 import { createInterface } from 'node:readline/promises'
 import { resolve } from 'node:path'
 import {
-  RunStore, runLoop, FakeAdapter, fakeResult, GateSchema,
+  RunStore, runLoop, FakeAdapter, fakeResult, GateSchema, loadConfig,
+  DEFAULT_STALL_LIMIT, DEFAULT_VERIFY_REPEAT, DEFAULT_GATE_TIMEOUT_MS, CONFIG_FILENAME,
   type Gate, type GateWarning, type AgentAdapter, type ApprovalDecision,
 } from '@zannabi-lab/core'
 import { ClaudeAdapter } from '@zannabi-lab/adapter-claude'
@@ -16,7 +17,8 @@ type AgentName = (typeof AGENTS)[number]
 function parseGateFlag(value: string): Gate {
   const idx = value.indexOf(':')
   if (idx < 1) throw new Error(`--gate 형식은 "name:cmd" 입니다: ${value}`)
-  return GateSchema.parse({ name: value.slice(0, idx), cmd: value.slice(idx + 1) })
+  // 사람이 건 게이트는 완료의 정의다 — 에이전트의 자기 검사와 구별해 결과를 따로 집계한다
+  return GateSchema.parse({ name: value.slice(0, idx), cmd: value.slice(idx + 1), source: 'user' })
 }
 
 interface RuntimeChoice {
@@ -85,14 +87,18 @@ async function main() {
     allowPositionals: true,
     options: {
       cwd: { type: 'string', default: '.' },
-      budget: { type: 'string', default: '3' },
+      budget: { type: 'string' },
       gate: { type: 'string', multiple: true, default: [] },
       model: { type: 'string' },
-      agent: { type: 'string', default: 'claude' },
+      agent: { type: 'string' },
       'plan-agent': { type: 'string' },
       'plan-model': { type: 'string' },
       'exec-agent': { type: 'string' },
       'exec-model': { type: 'string' },
+      'stall-limit': { type: 'string' },
+      'verify-repeat': { type: 'string' },
+      'gate-timeout': { type: 'string' },
+      'no-suggest': { type: 'boolean' },
       yes: { type: 'boolean', default: false },
     },
   })
@@ -101,10 +107,25 @@ async function main() {
     console.error(
       '사용법: zannabi run "<작업 설명>" [--cwd .] [--budget 3] [--gate "name:cmd"]' +
       ` [--agent ${AGENTS.join('|')}] [--model <이름>] [--yes]\n` +
-      '  생성-검증 분리: [--plan-agent/--plan-model] [--exec-agent/--exec-model]',
+      '  생성-검증 분리: [--plan-agent/--plan-model] [--exec-agent/--exec-model]\n' +
+      `  루프 계측: [--stall-limit N] (기본 ${DEFAULT_STALL_LIMIT}, 0이면 끔)` +
+      ` [--verify-repeat N] (통과 재확인 횟수, 기본 ${DEFAULT_VERIFY_REPEAT})\n` +
+      '  게이트 고정: [--no-suggest] (제안 게이트 거부)' +
+      ` [--gate-timeout <ms>] (기본 ${DEFAULT_GATE_TIMEOUT_MS})\n` +
+      `  기본값은 프로젝트의 ${CONFIG_FILENAME}에서 읽는다 (플래그가 우선)`,
     )
     process.exit(1)
   }
+
+  const cwd = resolve(values.cwd)
+  const loaded = loadConfig(cwd)
+  if (!loaded.ok) {
+    // 설정이 있는데 깨졌으면 세운다 — 조용히 무시하면 사용자가 믿는 조건과 실제 조건이 갈린다
+    console.error(`[zannabi] ${loaded.path} 을(를) 읽을 수 없습니다 — ${loaded.error}`)
+    process.exit(1)
+  }
+  const config = loaded.config
+  if (loaded.path) console.log(`[zannabi] 설정 사용: ${loaded.path}`)
 
   // 사용자가 실제로 쓴 플래그를 짚어야 고칠 자리를 안다
   for (const flag of ['agent', 'plan-agent', 'exec-agent'] as const) {
@@ -113,32 +134,55 @@ async function main() {
     console.error(`[zannabi] --${flag}는 ${AGENTS.join(' | ')} 중 하나여야 합니다: ${given}`)
     process.exit(1)
   }
-
-  // --agent/--model이 기본값이고, plan/exec 쪽이 지정되면 그 턴만 덮어쓴다
-  const plan: RuntimeChoice = {
-    agent: (values['plan-agent'] ?? values.agent) as AgentName,
-    model: values['plan-model'] ?? values.model,
-  }
-  const exec: RuntimeChoice = {
-    agent: (values['exec-agent'] ?? values.agent) as AgentName,
-    model: values['exec-model'] ?? values.model,
-  }
-
-  const budget = Number(values.budget)
-  if (!Number.isInteger(budget) || budget < 1) {
-    console.error(`[zannabi] --budget은 1 이상의 정수여야 합니다: ${values.budget}`)
+  for (const [key, given] of [
+    ['agent', config.agent], ['planAgent', config.planAgent], ['execAgent', config.execAgent],
+  ] as const) {
+    if (given === undefined || AGENTS.includes(given as AgentName)) continue
+    console.error(`[zannabi] ${CONFIG_FILENAME}의 ${key}는 ${AGENTS.join(' | ')} 중 하나여야 합니다: ${given}`)
     process.exit(1)
   }
 
+  // 우선순위: 플래그 > 설정 파일 > 기본값
+  const agent = (values.agent ?? config.agent ?? 'claude') as AgentName
+  const model = values.model ?? config.model
+  const plan: RuntimeChoice = {
+    agent: (values['plan-agent'] ?? config.planAgent ?? agent) as AgentName,
+    model: values['plan-model'] ?? config.planModel ?? model,
+  }
+  const exec: RuntimeChoice = {
+    agent: (values['exec-agent'] ?? config.execAgent ?? agent) as AgentName,
+    model: values['exec-model'] ?? config.execModel ?? model,
+  }
+
+  /** 숫자 플래그 하나를 검증해 꺼낸다. 잘못된 값은 기본값으로 조용히 흘리지 않고 세운다 */
+  function number(flag: string, raw: string | undefined, fallback: number, min: number): number {
+    if (raw === undefined) return fallback
+    const value = Number(raw)
+    if (!Number.isInteger(value) || value < min) {
+      console.error(`[zannabi] --${flag}은(는) ${min} 이상의 정수여야 합니다: ${raw}`)
+      process.exit(1)
+    }
+    return value
+  }
+
+  const budget = number('budget', values.budget, config.budget ?? 3, 1)
+  const stallLimit = number('stall-limit', values['stall-limit'], config.stallLimit ?? DEFAULT_STALL_LIMIT, 0)
+  const verifyRepeat = number('verify-repeat', values['verify-repeat'], config.verifyRepeat ?? DEFAULT_VERIFY_REPEAT, 1)
+  const gateTimeoutMs = number('gate-timeout', values['gate-timeout'], config.gateTimeoutMs ?? DEFAULT_GATE_TIMEOUT_MS, 1)
+  const rejectSuggested = values['no-suggest'] ?? config.rejectSuggested ?? false
+
   let userGates: Gate[]
   try {
-    userGates = (values.gate as string[]).map(parseGateFlag)
+    // 설정 파일의 게이트가 먼저다 — 프로젝트의 완료 정의이고, 플래그는 그 위에 얹는 추가분이다.
+    // 이름이 겹치면 그때그때 준 플래그가 이긴다
+    const fromFlags = (values.gate as string[]).map(parseGateFlag)
+    const fromConfig = (config.gates ?? []).map(g => GateSchema.parse({ ...g, source: 'user' }))
+    userGates = [...fromConfig.filter(c => !fromFlags.some(f => f.name === c.name)), ...fromFlags]
   } catch (err) {
     console.error(`[zannabi] ${err instanceof Error ? err.message : err}`)
     process.exit(1)
   }
 
-  const cwd = resolve(values.cwd)
   const store = new RunStore(cwd, intent)
   const { buildReport, captureDiff } = await import('./report')
 
@@ -151,6 +195,10 @@ async function main() {
     // 조합이 같으면 어댑터 하나만 쓴다 — 같은 런타임인데 세션이 끊기면 손해다
     execAdapter: label(plan) === label(exec) ? undefined : pickAdapter(exec),
     runtime: { plan: label(plan), exec: label(exec) },
+    stallLimit,
+    verifyRepeat,
+    gateTimeoutMs,
+    rejectSuggested,
     store,
     approve: values.yes ? approveAutomatically : approveViaTerminal,
     log: message => console.log(`[zannabi] ${message}`),
@@ -169,6 +217,16 @@ async function main() {
     console.error('[zannabi] 게이트 환경 오류 — 명령이 이 환경에서 실행 가능한지 확인하세요.')
   if (result.status === 'agent-error')
     console.error('[zannabi] 에이전트 실행 실패 — 아래 사유를 확인하세요.')
+  if (result.status === 'flaky-gate')
+    console.error(
+      '[zannabi] 게이트 통과가 재현되지 않았습니다. 간헐적으로 실패하는 게이트를 ' +
+      '고치거나, 재확인이 과하면 --verify-repeat 1로 끄세요.',
+    )
+  if (result.status === 'no-progress')
+    console.error(
+      '[zannabi] 진전이 없어 예산을 남기고 중단했습니다. ' +
+      '게이트가 실제로 달성 가능한지 보고, 필요하면 --stall-limit으로 조절하세요.',
+    )
   if (result.detail) console.error(`[zannabi] 사유: ${result.detail}`)
   process.exit(result.status === 'success' ? 0 : 1)
 }

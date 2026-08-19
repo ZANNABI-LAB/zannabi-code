@@ -1,6 +1,6 @@
 import { mkdirSync, appendFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
-import type { Goal, Evidence } from './goal'
+import type { Goal, Round } from './goal'
 import type { AgentEvent } from './adapter'
 
 export function slugify(text: string): string {
@@ -30,11 +30,20 @@ export class RunStore {
   appendTranscript(event: AgentEvent) {
     appendFileSync(join(this.dir, 'transcript.jsonl'), JSON.stringify(event) + '\n')
   }
-  writeEvidence(rounds: Evidence[][]) {
+  writeEvidence(rounds: Round[]) {
     writeFileSync(join(this.dir, 'evidence.json'), JSON.stringify(rounds, null, 2))
   }
   writeDiff(patch: string) {
     writeFileSync(join(this.dir, 'diff.patch'), patch)
+  }
+  /**
+   * 라운드별 변경분. 최종 diff 하나만 남기면 "몇 라운드째에 무엇이 달라졌나"를
+   * 사후에 확인할 방법이 없다 — no-progress 판정의 근거도 여기서 검증된다.
+   */
+  writeRoundDiff(round: number, patch: string) {
+    const dir = join(this.dir, 'rounds')
+    mkdirSync(dir, { recursive: true })
+    writeFileSync(join(dir, `round-${round}.patch`), patch)
   }
   writeReport(text: string) {
     writeFileSync(join(this.dir, 'report.md'), text)

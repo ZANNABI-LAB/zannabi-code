@@ -1,4 +1,4 @@
-import type { Gate, Evidence } from './goal'
+import type { Gate, Evidence, Revision } from './goal'
 
 const TAIL_CHARS = 4000
 
@@ -8,6 +8,8 @@ export interface RunGateOptions {
   killGraceMs?: number
   /** 종료 후 남은 stdout/stderr를 거둬들이는 유예 */
   ioGraceMs?: number
+  /** 이 게이트가 검사하는 워킹트리 상태. 그대로 증거에 결박된다 */
+  revision?: Revision
 }
 
 async function collect(stream: ReadableStream<Uint8Array> | null, sink: { text: string }) {
@@ -98,11 +100,13 @@ export async function runGate(gate: Gate, opts: RunGateOptions): Promise<Evidenc
   return {
     gate: gate.name,
     cmd: gate.cmd,
+    source: gate.source,
     outcome,
     exitCode,
     stdoutTail: stdoutSink.text.slice(-TAIL_CHARS),
     stderrTail: stderrSink.text.slice(-TAIL_CHARS),
     durationMs: Date.now() - started,
     timestamp: new Date().toISOString(),
+    revision: opts.revision,
   }
 }

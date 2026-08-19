@@ -1,4 +1,4 @@
-import type { AgentEvent } from '@zannabi-lab/core'
+import { readUsage, type AgentEvent, type Usage } from '@zannabi-lab/core'
 
 export interface ParsedStream {
   sessionId?: string
@@ -7,6 +7,14 @@ export interface ParsedStream {
   events: AgentEvent[]
   /** result 이벤트가 성공이 아닐 때의 사유 (subtype + 본문 앞부분) */
   errorReason?: string
+  usage?: Usage
+}
+
+/** `result` 이벤트의 usage 필드명. claude는 비용까지 보고한다 */
+const USAGE_KEYS = {
+  input: ['input_tokens'],
+  output: ['output_tokens'],
+  cached: ['cache_read_input_tokens'],
 }
 
 const REASON_CHARS = 300
@@ -18,6 +26,7 @@ export function parseStreamJson(raw: string): ParsedStream {
   let ok = false
   let errorReason: string | undefined
   let sawResult = false
+  let usage: Usage | undefined
   for (const line of raw.split('\n')) {
     const trimmed = line.trim()
     if (!trimmed) continue
@@ -37,6 +46,7 @@ export function parseStreamJson(raw: string): ParsedStream {
     if (typeof json.session_id === 'string') sessionId = json.session_id
     if (json.type === 'result') {
       sawResult = true
+      usage = readUsage(json.usage, USAGE_KEYS, json.total_cost_usd) ?? usage
       ok = json.subtype === 'success'
       finalText = typeof json.result === 'string' ? json.result : ''
       if (!ok) {
@@ -50,5 +60,5 @@ export function parseStreamJson(raw: string): ParsedStream {
   }
   // result 이벤트 자체가 없으면 스트림이 중간에 끊긴 것 — 이것도 사유다
   if (!sawResult) errorReason = 'result 이벤트 없음 (스트림이 완료 전에 끊김)'
-  return { sessionId, finalText, ok, events, errorReason }
+  return { sessionId, finalText, ok, events, errorReason, usage }
 }

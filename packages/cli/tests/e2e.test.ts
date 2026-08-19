@@ -1,5 +1,5 @@
 import { test, expect } from 'bun:test'
-import { mkdtempSync, existsSync, readdirSync } from 'node:fs'
+import { mkdtempSync, existsSync, readdirSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
@@ -149,4 +149,50 @@ test('E2E: 분리 실행이면 runtime 표기가 report.md에 남는다', async 
 
   expect(out).toContain('plan=`claude:default`')
   expect(out).toContain('exec=`codex:default`')
+})
+
+test('E2E: .zannabi.json의 게이트와 예산이 적용된다', async () => {
+  const project = mkdtempSync(join(tmpdir(), 'zannabi-e2e-config-'))
+  writeFileSync(
+    join(project, '.zannabi.json'),
+    JSON.stringify({ gates: [{ name: 'always', cmd: 'true' }], budget: 1 }),
+  )
+  const proc = Bun.spawn(['bun', cliPath, 'run', '테스트 작업', '--cwd', project, '--yes'], {
+    env: { ...process.env, ZANNABI_ADAPTER: 'fake' },
+    stdin: 'ignore', stdout: 'pipe', stderr: 'pipe',
+  })
+  const exitCode = await proc.exited
+  const out = await new Response(proc.stdout).text()
+
+  expect(exitCode).toBe(0)
+  expect(out).toContain('.zannabi.json')
+  expect(out).toContain('always') // 설정 파일 게이트가 실제로 걸렸다
+  expect(out).toContain('사용자') // 설정 파일 게이트는 사용자 게이트로 집계된다
+})
+
+test('E2E: 설정 파일이 깨졌으면 조용히 무시하지 않고 세운다', async () => {
+  const project = mkdtempSync(join(tmpdir(), 'zannabi-e2e-badconfig-'))
+  writeFileSync(join(project, '.zannabi.json'), '{ broken')
+  const proc = Bun.spawn(['bun', cliPath, 'run', '테스트 작업', '--cwd', project, '--yes'], {
+    env: { ...process.env, ZANNABI_ADAPTER: 'fake' },
+    stdin: 'ignore', stdout: 'pipe', stderr: 'pipe',
+  })
+  const exitCode = await proc.exited
+  const out = (await new Response(proc.stdout).text()) + (await new Response(proc.stderr).text())
+
+  expect(exitCode).toBe(1)
+  expect(out).toContain('JSON 파싱 실패')
+})
+
+test('E2E: 플래그가 설정 파일을 이긴다', async () => {
+  const project = mkdtempSync(join(tmpdir(), 'zannabi-e2e-override-'))
+  writeFileSync(join(project, '.zannabi.json'), JSON.stringify({ planModel: 'from-config' }))
+  const proc = Bun.spawn(
+    ['bun', cliPath, 'run', '테스트 작업', '--cwd', project, '--yes', '--plan-model', 'from-flag'],
+    { env: { ...process.env, ZANNABI_ADAPTER: 'fake' }, stdin: 'ignore', stdout: 'pipe', stderr: 'pipe' },
+  )
+  await proc.exited
+  const out = await new Response(proc.stdout).text()
+
+  expect(out).toContain('plan=`claude:from-flag`')
 })

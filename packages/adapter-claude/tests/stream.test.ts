@@ -51,3 +51,28 @@ test('성공한 스트림에는 사유가 없다', () => {
   expect(parsed.ok).toBe(true)
   expect(parsed.errorReason).toBeUndefined()
 })
+
+test('result 이벤트에서 토큰과 비용을 거둔다', () => {
+  const raw = JSON.stringify({
+    type: 'result',
+    subtype: 'success',
+    result: '완료',
+    total_cost_usd: 0.0312,
+    usage: { input_tokens: 12, output_tokens: 34, cache_read_input_tokens: 900 },
+  })
+  const parsed = parseStreamJson(raw)
+  expect(parsed.usage).toEqual({
+    inputTokens: 12,
+    outputTokens: 34,
+    cachedInputTokens: 900,
+    costUsd: 0.0312,
+    turns: 1,
+  })
+})
+
+test('usage가 없는 스트림은 usage 없이 돌아온다', () => {
+  const parsed = parseStreamJson(
+    JSON.stringify({ type: 'result', subtype: 'success', result: '완료' }),
+  )
+  expect(parsed.usage).toBeUndefined()
+})

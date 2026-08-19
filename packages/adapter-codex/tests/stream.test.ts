@@ -59,3 +59,27 @@ test('깨진 라인과 비객체 JSON은 건너뛴다', () => {
   expect(parsed.ok).toBe(true)
   expect(parsed.events).toHaveLength(1)
 })
+
+test('turn.completed에서 토큰을 거둔다 — codex는 비용을 보고하지 않는다', () => {
+  const raw = JSON.stringify({
+    type: 'turn.completed',
+    usage: { input_tokens: 7, output_tokens: 8, cached_input_tokens: 5 },
+  })
+  const parsed = parseCodexStream(raw)
+  expect(parsed.usage).toEqual({
+    inputTokens: 7,
+    outputTokens: 8,
+    cachedInputTokens: 5,
+    turns: 1,
+  })
+  expect(parsed.usage?.costUsd).toBeUndefined()
+})
+
+test('실패한 턴의 사용량도 거둔다 — 실패도 청구된다', () => {
+  const raw = [
+    JSON.stringify({ type: 'turn.failed', error: { message: '터짐' }, usage: { input_tokens: 3, output_tokens: 1 } }),
+  ].join('\n')
+  const parsed = parseCodexStream(raw)
+  expect(parsed.ok).toBe(false)
+  expect(parsed.usage?.inputTokens).toBe(3)
+})

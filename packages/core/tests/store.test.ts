@@ -18,14 +18,20 @@ test('런 디렉토리 생성 및 산출물 기록', () => {
   store.writePlan('# 계획')
   store.appendTranscript({ type: 'assistant', timestamp: 't1', payload: { a: 1 } })
   store.appendTranscript({ type: 'result', timestamp: 't2', payload: { b: 2 } })
-  store.writeEvidence([[{
-    gate: 'test', cmd: 'true', outcome: 'pass', exitCode: 0,
-    stdoutTail: '', stderrTail: '', durationMs: 10, timestamp: 't',
-  }]])
+  store.writeEvidence([{
+    round: 1,
+    revision: { tracked: true, head: 'c0ffee', diffHash: 'abc123' },
+    evidence: [{
+      gate: 'test', cmd: 'true', source: 'user', outcome: 'pass', exitCode: 0,
+      stdoutTail: '', stderrTail: '', durationMs: 10, timestamp: 't',
+    }],
+  }])
+  store.writeRoundDiff(1, 'diff --git a/x b/x\n')
 
   expect(readFileSync(join(store.dir, 'plan.md'), 'utf8')).toBe('# 계획')
   const lines = readFileSync(join(store.dir, 'transcript.jsonl'), 'utf8').trim().split('\n')
   expect(lines).toHaveLength(2)
   expect(JSON.parse(lines[0]).type).toBe('assistant')
   expect(existsSync(join(store.dir, 'evidence.json'))).toBe(true)
+  expect(readFileSync(join(store.dir, 'rounds', 'round-1.patch'), 'utf8')).toContain('diff --git')
 })

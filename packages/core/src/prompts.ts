@@ -22,9 +22,15 @@ export function executePrompt(plan: string, feedback?: string): string {
   return `Execute this plan. Modify files as needed.\n\nPlan:\n${plan}${retry}`
 }
 
-export function failureSummary(evidence: Evidence[]): string {
-  return evidence
+/**
+ * `repeated`는 직전 라운드와 변경분·게이트 결과가 모두 같았다는 뜻이다.
+ * 같은 접근을 한 번 더 시키는 것은 예산 낭비라, 그 사실을 프롬프트에 명시해 방향을 틀게 한다.
+ */
+export function failureSummary(evidence: Evidence[], repeated = false): string {
+  const body = evidence
     .filter(e => e.outcome !== 'pass')
     .map(e => `[${e.gate}] ${e.cmd} → exit ${e.exitCode}\n${e.stderrTail || e.stdoutTail}`)
     .join('\n\n')
+  if (!repeated) return body
+  return `${body}\n\nNOTE: your last attempt changed no files and produced identical gate results.\nRepeating the same approach will not help — diagnose why the fix is not taking effect, or try a different approach.`
 }

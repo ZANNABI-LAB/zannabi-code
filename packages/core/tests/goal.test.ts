@@ -17,7 +17,9 @@ test('빈 name/cmd 게이트는 거부', () => {
 
 test('extractGates: json 블록에서 게이트 추출', () => {
   const text = '계획입니다.\n```json\n{"gates":[{"name":"test","cmd":"bun test"}]}\n```'
-  expect(extractGates(text)).toEqual([{ name: 'test', cmd: 'bun test', timeoutMs: 300_000 }])
+  expect(extractGates(text)).toEqual([
+    { name: 'test', cmd: 'bun test', timeoutMs: 300_000, source: 'suggested' },
+  ])
 })
 
 test('extractGates: 블록 없음/깨진 JSON/스키마 불일치 → null', () => {

@@ -2,7 +2,8 @@ import { test, expect } from 'bun:test'
 import { runGate, preflightGates } from '../src/gates'
 
 const cwd = process.cwd()
-const gate = (cmd: string, timeoutMs = 300_000) => ({ name: 'g', cmd, timeoutMs })
+const gate = (cmd: string, timeoutMs = 300_000) =>
+  ({ name: 'g', cmd, timeoutMs, source: 'suggested' }) as const
 
 // 유예값을 줄여 상한을 명확히 한다. 기본값(1000/500)으로 절대 시간을 단언하면
 // bun test가 파일을 동시 실행할 때 타이머가 밀려 플레이키해진다

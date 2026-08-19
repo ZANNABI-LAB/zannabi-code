@@ -1,0 +1,49 @@
+/**
+ * 라운드가 정말 제자리인지 판정한다.
+ *
+ * 실측이 순진한 규칙을 반증했다: 게이트 결과가 같다고 정체는 아니다.
+ * (C2는 3라운드가 완전히 동일했지만, B2는 결과가 같은 2라운드 뒤에 진전했다.)
+ * 그래서 **게이트 결과와 워킹트리 변경분을 함께** 본다 — 파일이 달라졌다면
+ * 같은 실패를 다시 봤더라도 다른 시도를 한 것이므로 진전으로 친다.
+ */
+import type { Evidence, Revision, Round } from './goal'
+
+/** 기본 한계. C2(3라운드 동일)는 잡고 B2(2라운드 동일 후 진전)는 살리는 자리다 */
+export const DEFAULT_STALL_LIMIT = 3
+
+export function roundSignature(revision: Revision, evidence: Evidence[]): string {
+  return [
+    revision.diffHash ?? 'untracked',
+    ...evidence.map(e => `${e.gate}=${e.outcome}:${e.exitCode}`),
+  ].join('|')
+}
+
+/**
+ * 직전 라운드들과 서명이 같은 가장 이른 라운드 번호. 없으면 undefined.
+ *
+ * 연속된 꼬리만 본다 — A B A처럼 사이에 다른 시도가 낀 경우는 정체가 아니라 왕복이고,
+ * 그것을 정체로 부르면 되돌아가며 탐색하는 정상 동작을 끊는다.
+ */
+export function repeatOf(previous: Round[], signature: string): number | undefined {
+  let found: number | undefined
+  for (let i = previous.length - 1; i >= 0; i--) {
+    const round = previous[i]
+    if (roundSignature(round.revision, round.evidence) !== signature) break
+    found = round.round
+  }
+  return found
+}
+
+/**
+ * 정체로 루프를 끊을지. limit이 0 이하면 감지를 끈다.
+ *
+ * 리비전을 못 읽는 환경(git 아님)에서는 **감지 자체를 하지 않는다.** 그때 남는 축은
+ * 게이트 결과뿐인데, 그 축만으로 끊는 규칙이 바로 실측에서 틀린 것으로 드러난 규칙이다.
+ */
+export function shouldStop(rounds: Round[], limit: number): boolean {
+  if (limit <= 0 || rounds.length < limit) return false
+  const tail = rounds.slice(-limit)
+  if (!tail.every(r => r.revision.tracked && r.revision.diffHash !== null)) return false
+  const signature = roundSignature(tail[0].revision, tail[0].evidence)
+  return tail.every(r => roundSignature(r.revision, r.evidence) === signature)
+}
