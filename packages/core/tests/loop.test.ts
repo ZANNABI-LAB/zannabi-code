@@ -2,7 +2,8 @@ import { test, expect } from 'bun:test'
 import { mkdtempSync, writeFileSync, readFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import type { AgentResult } from '../src/adapter'
+import type { AgentResult, AgentAdapter } from '../src/adapter'
+import type { GateWarning } from '../src/gates'
 import { runLoop, type LoopOptions } from '../src/loop'
 import { RunStore } from '../src/store'
 import { FakeAdapter, fakeResult } from '../src/testing'
@@ -125,4 +126,47 @@ test('사용자 게이트가 제안 게이트보다 우선됨 → success', asyn
   const goal = JSON.parse(readFileSync(join(store.dir, 'goal.json'), 'utf-8'))
   expect(goal.gates).toHaveLength(1)
   expect(goal.gates[0].cmd).toBe(`test -f ${marker}`)
+})
+
+test('어댑터 사전점검 실패 → 계획 호출 없이 agent-error + 사유', async () => {
+  const adapter = new FakeAdapter([fakeResult(planText('true'))])
+  ;(adapter as AgentAdapter).preflight = async () => ({ ok: false, detail: '로그인 필요' })
+  const result = await runLoop(options({ adapter }))
+  expect(result.status).toBe('agent-error')
+  expect(result.detail).toBe('로그인 필요')
+  expect(adapter.requests).toHaveLength(0) // 계획 비용조차 쓰지 않음
+})
+
+test('어댑터 실패 사유가 LoopResult.detail로 전달된다', async () => {
+  const adapter = new FakeAdapter([
+    { ok: false, finalText: '', events: [], errorReason: 'exit 1 | result=error_auth' },
+  ])
+  const result = await runLoop(options({ adapter }))
+  expect(result.status).toBe('agent-error')
+  expect(result.detail).toBe('exit 1 | result=error_auth')
+})
+
+test('실행 불가 게이트의 경고가 approve로 전달된다', async () => {
+  let seen: GateWarning[] = []
+  const adapter = new FakeAdapter([fakeResult(planText('definitely-not-a-command-xyz'))])
+  const result = await runLoop(options({
+    adapter,
+    approve: async (_p, _g, warnings) => {
+      seen = warnings
+      return { action: 'abort', reason: '경고 때문에 거부' }
+    },
+  }))
+  expect(seen).toHaveLength(1)
+  expect(seen[0].gate).toBe('g')
+  expect(result.status).toBe('aborted')
+  expect(result.detail).toBe('경고 때문에 거부')
+})
+
+test('env-error는 어느 게이트가 깨졌는지 detail에 남긴다', async () => {
+  const adapter = new FakeAdapter([
+    fakeResult(planText('definitely-not-a-command-xyz')), fakeResult('1'),
+  ])
+  const result = await runLoop(options({ adapter }))
+  expect(result.status).toBe('env-error')
+  expect(result.detail).toContain('definitely-not-a-command-xyz')
 })

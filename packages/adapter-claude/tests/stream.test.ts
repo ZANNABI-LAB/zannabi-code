@@ -32,3 +32,22 @@ test('비객체 JSON 라인(null, 숫자)은 건너뛰고 유효 이벤트만 �
   expect(parsed.events).toHaveLength(2)
   expect(parsed.events.map(e => e.type)).toEqual(['system', 'result'])
 })
+
+test('result가 성공이 아니면 사유를 뽑는다', () => {
+  const raw = '{"type":"result","subtype":"error_during_execution","result":"rate limit  exceeded"}'
+  const parsed = parseStreamJson(raw)
+  expect(parsed.ok).toBe(false)
+  expect(parsed.errorReason).toBe('result=error_during_execution: rate limit exceeded')
+})
+
+test('result 이벤트가 아예 없으면 그것도 사유로 남는다 (401 만료 형태)', () => {
+  const parsed = parseStreamJson('{"type":"system","session_id":"abc"}')
+  expect(parsed.ok).toBe(false)
+  expect(parsed.errorReason).toContain('result 이벤트 없음')
+})
+
+test('성공한 스트림에는 사유가 없다', () => {
+  const parsed = parseStreamJson('{"type":"result","subtype":"success","result":"done"}')
+  expect(parsed.ok).toBe(true)
+  expect(parsed.errorReason).toBeUndefined()
+})

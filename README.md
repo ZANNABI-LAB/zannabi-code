@@ -6,7 +6,7 @@
 
 [![license](https://img.shields.io/badge/license-Apache--2.0-blue)](LICENSE)
 [![runtime](https://img.shields.io/badge/runtime-Bun-black)](https://bun.sh)
-[![tests](https://img.shields.io/badge/tests-38%20passing-brightgreen)]()
+[![tests](https://img.shields.io/badge/tests-60%20passing-brightgreen)]()
 
 > **Shake the branch before you cross.** — 잔나비는 건너기 전에 가지를 흔들어본다
 
@@ -34,16 +34,29 @@ zannabi run "결제 API에 재시도 로직 추가"
 
 ```bash
 bun install
-bun run packages/cli/src/index.ts run "작업 설명" --cwd /path/to/project \
-  --gate "test:bun test" --budget 3
+bun link          # zannabi 명령 등록 (생략하려면 bun run packages/cli/src/index.ts 로 대체)
+
+zannabi run "작업 설명" --cwd /path/to/project --gate "test:bun test" --budget 3
 ```
 
-`--gate` 는 `<이름>:<명령>` 형식이며 여러 번 줄 수 있다. `--budget` 은 재시도 횟수(기본 3).
+| 옵션 | 뜻 |
+|---|---|
+| `--gate "<이름>:<명령>"` | 검증 게이트. 여러 번 줄 수 있다 |
+| `--budget <N>` | 재시도 횟수 (기본 3) |
+| `--model <이름>` | 에이전트 모델 지정 |
+| `--yes` | 승인 프롬프트를 건너뛴다 (배치 실행용) |
+
+**`--yes` 주의.** 설계상 사람의 승인은 유일한 개입 지점이다. 이를 건너뛰는 대신 러너가
+게이트의 실행 가능성을 먼저 확인하고, 실행할 수 없는 게이트가 있으면 거부한다.
+이 검사는 명령의 **존재**만 본다 — 작업 전 실패하는 게이트는 정상이므로 통과/불통과는 판정하지 않는다.
 
 ## 증거 디렉토리
 
 `plan.md`(승인된 계획) · `goal.json`(intent/게이트/예산) · `transcript.jsonl`(에이전트 이벤트)
-· `evidence.json`(라운드별 게이트 결과) · `diff.patch`(변경분) · `report.md`(요약)
+· `evidence.json`(라운드별 게이트 결과) · `diff.patch`(변경분) · `report.md`(요약·실패 사유)
+
+`diff.patch` 는 **신규 파일을 포함**한다. 이를 위해 인덱스가 필요하지만 러너는 대상 저장소의
+인덱스를 건드리지 않는다 — 실제 인덱스를 임시 파일로 복사해 쓰므로 스테이징 상태는 그대로다.
 
 ## 패키지
 
@@ -57,7 +70,7 @@ bun run packages/cli/src/index.ts run "작업 설명" --cwd /path/to/project \
 ## 개발
 
 ```bash
-bun test        # 38개
+bun test        # 60개
 bun run typecheck
 ```
 
