@@ -1,5 +1,6 @@
 export * from './goal'
 export * from './gates'
+export * from './proc'
 export * from './adapter'
 export * from './testing'
 export * from './store'

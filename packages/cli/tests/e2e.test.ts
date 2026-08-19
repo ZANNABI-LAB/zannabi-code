@@ -110,3 +110,16 @@ test('E2E: --yes는 실행 불가한 게이트를 거부한다', async () => {
   expect(out).toContain('aborted')
   expect(out).toContain('definitely-not-a-command-xyz') // 어느 게이트 때문인지 보인다
 })
+
+test('E2E: --agent 값이 잘못되면 → 종료 코드 1, 안내 메시지', async () => {
+  const project = mkdtempSync(join(tmpdir(), 'zannabi-e2e-agent-'))
+  const proc = Bun.spawn(
+    ['bun', cliPath, 'run', '테스트 작업', '--cwd', project, '--agent', 'gpt'],
+    { env: { ...process.env, ZANNABI_ADAPTER: 'fake' }, stdout: 'pipe', stderr: 'pipe' },
+  )
+  const exitCode = await proc.exited
+  const out = (await new Response(proc.stdout).text()) + (await new Response(proc.stderr).text())
+
+  expect(exitCode).toBe(1)
+  expect(out).toContain('--agent')
+})

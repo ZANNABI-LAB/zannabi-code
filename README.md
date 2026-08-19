@@ -6,7 +6,7 @@
 
 [![license](https://img.shields.io/badge/license-Apache--2.0-blue)](LICENSE)
 [![runtime](https://img.shields.io/badge/runtime-Bun-black)](https://bun.sh)
-[![tests](https://img.shields.io/badge/tests-67%20passing-brightgreen)]()
+[![tests](https://img.shields.io/badge/tests-83%20passing-brightgreen)]()
 
 > **Shake the branch before you cross.** — 잔나비는 건너기 전에 가지를 흔들어본다
 
@@ -27,7 +27,8 @@ zannabi run "결제 API에 재시도 로직 추가"
 ## 전제조건
 
 - [Bun](https://bun.sh) 1.3+
-- [Claude Code](https://claude.com/claude-code) CLI — 러너가 `claude`를 헤드리스로 구동한다
+- [Claude Code](https://claude.com/claude-code) 또는 [Codex](https://developers.openai.com/codex/cli) CLI
+  — 러너가 `claude`/`codex`를 헤드리스로 구동한다 (`--agent`로 선택)
 - 대상 프로젝트에 **기계 검증 가능한 게이트**가 있을 것 (테스트·빌드·린트 등 종료코드로 판정되는 명령)
 
 ## 사용
@@ -43,6 +44,7 @@ zannabi run "작업 설명" --cwd /path/to/project --gate "test:bun test" --budg
 |---|---|
 | `--gate "<이름>:<명령>"` | 검증 게이트. 여러 번 줄 수 있다 |
 | `--budget <N>` | 재시도 횟수 (기본 3) |
+| `--agent claude\|codex` | 구동할 코딩 에이전트 (기본 claude) |
 | `--model <이름>` | 에이전트 모델 지정 |
 | `--yes` | 승인 프롬프트를 건너뛴다 (배치 실행용) |
 
@@ -62,7 +64,11 @@ zannabi run "작업 설명" --cwd /path/to/project --gate "test:bun test" --budg
 
 - `@zannabi-lab/core` — 런타임 중립: 스키마, 게이트 러너, PEV 루프, 증거 저장소
 - `@zannabi-lab/adapter-claude` — Claude Code 헤드리스 어댑터
+- `@zannabi-lab/adapter-codex` — Codex CLI 헤드리스 어댑터
 - `@zannabi-lab/cli` — `zannabi` 명령
+
+두 번째 어댑터를 붙이며 확인된 것: **PEV 루프·게이트 러너·증거 저장소는 한 줄도 바뀌지 않았다.**
+core 변경분은 두 어댑터가 공유하는 프로세스 구동 배관을 추출한 것뿐이고, `AgentAdapter` 계약 자체는 그대로다.
 
 같은 ZANNABI LAB의 [oh-my-zannabi](https://github.com/ZANNABI-LAB/oh-my-zannabi)(Claude Code
 조련 레이어)와 상호보완: 러너가 구동하는 Claude Code에 oh-my-zannabi 설정이 그대로 적용된다.
@@ -70,7 +76,7 @@ zannabi run "작업 설명" --cwd /path/to/project --gate "test:bun test" --budg
 ## 개발
 
 ```bash
-bun test        # 67개
+bun test        # 83개
 bun run typecheck
 ```
 

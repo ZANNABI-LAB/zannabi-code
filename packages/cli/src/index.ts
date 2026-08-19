@@ -8,6 +8,10 @@ import {
   type Gate, type GateWarning, type AgentAdapter, type ApprovalDecision,
 } from '@zannabi-lab/core'
 import { ClaudeAdapter } from '@zannabi-lab/adapter-claude'
+import { CodexAdapter } from '@zannabi-lab/adapter-codex'
+
+const AGENTS = ['claude', 'codex'] as const
+type AgentName = (typeof AGENTS)[number]
 
 function parseGateFlag(value: string): Gate {
   const idx = value.indexOf(':')
@@ -15,7 +19,7 @@ function parseGateFlag(value: string): Gate {
   return GateSchema.parse({ name: value.slice(0, idx), cmd: value.slice(idx + 1) })
 }
 
-function pickAdapter(model?: string): AgentAdapter {
+function pickAdapter(agent: AgentName, model?: string): AgentAdapter {
   if (process.env.ZANNABI_ADAPTER === 'fake') {
     // E2E용: 계획(게이트 true 제안) + 실행 응답
     return new FakeAdapter([
@@ -23,7 +27,7 @@ function pickAdapter(model?: string): AgentAdapter {
       fakeResult('실행했습니다.'),
     ])
   }
-  return new ClaudeAdapter({ model })
+  return agent === 'codex' ? new CodexAdapter({ model }) : new ClaudeAdapter({ model })
 }
 
 function printPlan(plan: string, gates: Gate[], warnings: GateWarning[]) {
@@ -74,14 +78,22 @@ async function main() {
       budget: { type: 'string', default: '3' },
       gate: { type: 'string', multiple: true, default: [] },
       model: { type: 'string' },
+      agent: { type: 'string', default: 'claude' },
       yes: { type: 'boolean', default: false },
     },
   })
   const [command, intent] = positionals
   if (command !== 'run' || !intent) {
     console.error(
-      '사용법: zannabi run "<작업 설명>" [--cwd .] [--budget 3] [--gate "name:cmd"] [--model <이름>] [--yes]',
+      '사용법: zannabi run "<작업 설명>" [--cwd .] [--budget 3] [--gate "name:cmd"]' +
+      ` [--agent ${AGENTS.join('|')}] [--model <이름>] [--yes]`,
     )
+    process.exit(1)
+  }
+
+  const agent = values.agent as AgentName
+  if (!AGENTS.includes(agent)) {
+    console.error(`[zannabi] --agent는 ${AGENTS.join(' | ')} 중 하나여야 합니다: ${values.agent}`)
     process.exit(1)
   }
 
@@ -108,7 +120,7 @@ async function main() {
     userGates,
     budget,
     cwd,
-    adapter: pickAdapter(values.model),
+    adapter: pickAdapter(agent, values.model),
     store,
     approve: values.yes ? approveAutomatically : approveViaTerminal,
     log: message => console.log(`[zannabi] ${message}`),

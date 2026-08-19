@@ -16,6 +16,13 @@
         "@zannabi-lab/core": "workspace:*",
       },
     },
+    "packages/adapter-codex": {
+      "name": "@zannabi-lab/adapter-codex",
+      "version": "0.0.1",
+      "dependencies": {
+        "@zannabi-lab/core": "workspace:*",
+      },
+    },
     "packages/cli": {
       "name": "@zannabi-lab/cli",
       "version": "0.0.1",
@@ -24,6 +31,7 @@
       },
       "dependencies": {
         "@zannabi-lab/adapter-claude": "workspace:*",
+        "@zannabi-lab/adapter-codex": "workspace:*",
         "@zannabi-lab/core": "workspace:*",
       },
     },
@@ -79,6 +87,8 @@
     "@typescript/typescript-win32-x64": ["@typescript/typescript-win32-x64@7.0.2", "", { "os": "win32", "cpu": "x64" }, "sha512-0BQ3HkAHHlKLSp1qRvf3SUhGpGsDuhB/jgFw75guyqbxJqEaS0Cw/VFO8i2nHglJUzQCRtMMR/IBAKE3ETMC4g=="],
 
     "@zannabi-lab/adapter-claude": ["@zannabi-lab/adapter-claude@workspace:packages/adapter-claude"],
+
+    "@zannabi-lab/adapter-codex": ["@zannabi-lab/adapter-codex@workspace:packages/adapter-codex"],
 
     "@zannabi-lab/cli": ["@zannabi-lab/cli@workspace:packages/cli"],
 

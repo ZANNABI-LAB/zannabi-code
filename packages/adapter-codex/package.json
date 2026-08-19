@@ -1,0 +1,10 @@
+{
+  "name": "@zannabi-lab/adapter-codex",
+  "version": "0.0.1",
+  "license": "Apache-2.0",
+  "type": "module",
+  "main": "src/index.ts",
+  "dependencies": {
+    "@zannabi-lab/core": "workspace:*"
+  }
+}
