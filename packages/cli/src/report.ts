@@ -9,6 +9,10 @@ export { captureDiff } from '@zannabi-lab/core'
  * 재려면 어느 쪽이 얼마를 썼는지가 갈려 있어야 한다.
  *
  * 비용을 보고하지 않는 러너(codex)는 `-`로 남긴다. 0원으로 적으면 공짜라는 거짓이 된다.
+ *
+ * `in(new)`와 `cached`는 어댑터가 정규화해 겹치지 않는다(코어의 `readUsage`). 열 이름에
+ * 그 뜻을 박아 두는 이유: 원본 CLI의 `input_tokens`는 러너마다 포함 관계가 달라서,
+ * 그냥 `in`이라고 적으면 이 표를 나중에 읽는 사람이 원본 숫자로 착각한다.
  */
 function usageLines(usage: { plan: Usage; exec: Usage }): string[] {
   const cost = (u: Usage) => (u.costUsd === undefined ? '-' : `$${u.costUsd.toFixed(4)}`)
@@ -17,11 +21,14 @@ function usageLines(usage: { plan: Usage; exec: Usage }): string[] {
     `${(u.cachedInputTokens ?? 0).toLocaleString()} | ${u.outputTokens.toLocaleString()} | ${cost(u)} |`
   const total = addUsage(addUsage(emptyUsage(), usage.plan), usage.exec)
   return [
-    `| 턴 | 횟수 | in | cached | out | cost |`,
+    `| 턴 | 횟수 | in(new) | cached | out | cost |`,
     `|---|---|---|---|---|---|`,
     row('plan', usage.plan),
     row('exec', usage.exec),
     row('합계', total),
+    ``,
+    `> \`in(new)\`는 캐시에 없던 입력 토큰이고 \`cached\`와 겹치지 않는다 — 총 입력은 둘의 합이다.` +
+      ` CLI 원본 필드의 포함 관계가 러너마다 달라 어댑터에서 맞춰 실었다.`,
   ]
 }
 

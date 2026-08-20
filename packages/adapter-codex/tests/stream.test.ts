@@ -66,13 +66,22 @@ test('turn.completed에서 토큰을 거둔다 — codex는 비용을 보고하�
     usage: { input_tokens: 7, output_tokens: 8, cached_input_tokens: 5 },
   })
   const parsed = parseCodexStream(raw)
+  // codex의 input_tokens는 캐시분을 포함하므로 빼서 싣는다 — claude 쪽과 같은 뜻이 되게
   expect(parsed.usage).toEqual({
-    inputTokens: 7,
+    inputTokens: 2,
     outputTokens: 8,
     cachedInputTokens: 5,
     turns: 1,
   })
   expect(parsed.usage?.costUsd).toBeUndefined()
+})
+
+test('캐시가 입력보다 크면 0으로 막는다 — 음수 토큰은 싣지 않는다', () => {
+  const raw = JSON.stringify({
+    type: 'turn.completed',
+    usage: { input_tokens: 5, output_tokens: 1, cached_input_tokens: 9 },
+  })
+  expect(parseCodexStream(raw).usage?.inputTokens).toBe(0)
 })
 
 test('실패한 턴의 사용량도 거둔다 — 실패도 청구된다', () => {

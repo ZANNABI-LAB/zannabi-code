@@ -18,6 +18,14 @@ export interface AgentEvent {
  * 조합별 비용을 비교하는 것이 이 축의 목적이라 그 차이를 뭉개면 축 자체가 못 쓰게 된다.
  */
 export interface Usage {
+  /**
+   * **캐시에 없던** 입력 토큰. `cachedInputTokens`와 겹치지 않는다.
+   *
+   * CLI마다 원본 필드의 뜻이 다르다 — claude의 `input_tokens`는 캐시 읽기와 별개고,
+   * codex의 `input_tokens`는 캐시 읽기를 **포함한다**. 그대로 한 열에 담으면 조합 비교가
+   * 성립하지 않고 합계 행도 뜻이 깨지므로, {@link readUsage}가 어댑터 경계에서 뺄셈해
+   * 두 축이 언제나 배타적이 되게 맞춘다. 총 입력은 두 값을 더하면 된다.
+   */
   inputTokens: number
   outputTokens: number
   /** 캐시에서 읽은 입력 토큰. 청구는 대개 이쪽이 싸다 */
@@ -89,9 +97,20 @@ export interface ParsedAgentStream {
  * 형태가 바뀌면 조용히 0이 되는 대신 필드가 없는 것으로 남는다 — 없는 값을 0으로
  * 위조하지 않는 것이 이 축의 전제다.
  */
+export interface UsageKeys {
+  input: string[]
+  output: string[]
+  cached: string[]
+  /**
+   * 이 CLI의 입력 토큰 필드가 캐시 읽기를 **포함**하면 true (codex가 그렇다).
+   * 그때는 캐시분을 빼서 {@link Usage.inputTokens}의 뜻을 어댑터끼리 맞춘다.
+   */
+  cachedInsideInput?: boolean
+}
+
 export function readUsage(
   raw: unknown,
-  names: { input: string[]; output: string[]; cached: string[] },
+  names: UsageKeys,
   costUsd?: unknown,
 ): Usage | undefined {
   if (typeof raw !== 'object' || raw === null) return undefined
@@ -107,8 +126,14 @@ export function readUsage(
   const output = pick(names.output)
   if (input === undefined && output === undefined) return undefined
   const cached = pick(names.cached)
+  // 뺄셈이 음수가 되면 이 CLI가 포함 관계라는 전제가 틀렸다는 뜻이다. 음수를 싣느니
+  // 0으로 막는다 — 합계가 음수인 표는 읽는 사람이 어느 쪽을 의심해야 할지 알 수 없다
+  const uncached =
+    names.cachedInsideInput && input !== undefined && cached !== undefined
+      ? Math.max(0, input - cached)
+      : input
   return {
-    inputTokens: input ?? 0,
+    inputTokens: uncached ?? 0,
     outputTokens: output ?? 0,
     ...(cached === undefined ? {} : { cachedInputTokens: cached }),
     ...(typeof costUsd === 'number' && Number.isFinite(costUsd) ? { costUsd } : {}),

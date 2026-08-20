@@ -45,3 +45,24 @@ test('누적: 없는 턴은 합계를 바꾸지 않는다', () => {
   const base: Usage = { inputTokens: 3, outputTokens: 3, turns: 1 }
   expect(addUsage(base, undefined)).toBe(base)
 })
+
+test('cachedInsideInput이면 캐시분을 빼서 어댑터끼리 같은 뜻이 되게 한다', () => {
+  const raw = { input_tokens: 566_030, output_tokens: 100, cached_input_tokens: 504_576 }
+  // codex: input ⊃ cached — 실측한 포함 관계
+  expect(readUsage(raw, { ...KEYS, cachedInsideInput: true })).toEqual({
+    inputTokens: 61_454,
+    outputTokens: 100,
+    cachedInputTokens: 504_576,
+    turns: 1,
+  })
+  // claude: input과 cached가 별개 — 그대로 싣는다
+  expect(readUsage(raw, KEYS)?.inputTokens).toBe(566_030)
+})
+
+test('캐시만 있고 입력이 없으면 뺄셈하지 않는다 — 없는 값을 0으로 만들지 않는다', () => {
+  const usage = readUsage(
+    { output_tokens: 3, cached_input_tokens: 50 },
+    { ...KEYS, cachedInsideInput: true },
+  )
+  expect(usage).toEqual({ inputTokens: 0, outputTokens: 3, cachedInputTokens: 50, turns: 1 })
+})

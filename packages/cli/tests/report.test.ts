@@ -191,3 +191,22 @@ test('버려진 제안이 없으면 그 절은 아예 나오지 않는다', () =
   const report = buildReport({ status: 'success', attempts: 1, rounds: [], dropped: [] }, '테스트')
   expect(report).not.toContain('반영되지 않은 제안 게이트')
 })
+
+test('in 열이 캐시와 겹치지 않는다는 사실을 표에 밝힌다', () => {
+  const report = buildReport(
+    {
+      status: 'success',
+      attempts: 1,
+      rounds: [round(1, 'aaa')],
+      usage: {
+        plan: { inputTokens: 61_454, cachedInputTokens: 504_576, outputTokens: 100, turns: 1 },
+        exec: { inputTokens: 15, cachedInputTokens: 307_180, outputTokens: 50, turns: 1 },
+      },
+    },
+    '작업',
+  )
+  expect(report).toContain('| 턴 | 횟수 | in(new) | cached | out | cost |')
+  // 정규화된 값끼리라 합계 행이 뜻을 가진다
+  expect(report).toContain('| 합계 | 2 | 61,469 | 811,756 | 150 | - |')
+  expect(report).toContain('총 입력은 둘의 합이다')
+})

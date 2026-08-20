@@ -10,7 +10,12 @@ export interface ParsedStream {
   usage?: Usage
 }
 
-/** `result` 이벤트의 usage 필드명. claude는 비용까지 보고한다 */
+/**
+ * `result` 이벤트의 usage 필드명. claude는 비용까지 보고한다.
+ *
+ * `cache_read_input_tokens`는 `input_tokens`와 **별개로** 세어지므로(실측: 15 + 307,180)
+ * 뺄셈하지 않는다 — codex 쪽과 달리 이미 배타적이다.
+ */
 const USAGE_KEYS = {
   input: ['input_tokens'],
   output: ['output_tokens'],

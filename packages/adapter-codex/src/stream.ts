@@ -5,11 +5,15 @@ const REASON_CHARS = 300
 /**
  * `turn.completed`의 usage 필드명. codex는 **비용을 보고하지 않으므로** costUsd가 비고,
  * 그 사실이 그대로 리포트에 드러난다 (0원으로 채우지 않는다).
+ *
+ * `cachedInsideInput`: 실측한 codex의 `input_tokens`는 `cached_input_tokens`를 포함한다
+ * (566,030 ⊃ 504,576). claude는 둘이 별개라, 정규화하지 않으면 같은 `in` 열에 다른 것이 실린다.
  */
 const USAGE_KEYS = {
   input: ['input_tokens'],
   output: ['output_tokens'],
   cached: ['cached_input_tokens'],
+  cachedInsideInput: true,
 }
 
 /**
