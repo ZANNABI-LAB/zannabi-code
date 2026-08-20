@@ -61,6 +61,23 @@ export function buildReport(result: LoopResult, intent: string): string {
     )
   }
 
+  // 재확인이 헛돌았을 정황. 통과 자체는 유효하므로 게이트 줄을 바꾸지 않고 따로 적는다 —
+  // "재확인했다"는 말이 실제로 무엇을 확인한 것인지 사람이 따져 볼 숫자를 남긴다
+  const suspects = last?.recheckSuspects ?? []
+  if (suspects.length > 0) {
+    lines.push(``, `## 재확인이 헛돌았을 수 있는 게이트`, ``)
+    for (const s of suspects)
+      lines.push(
+        `- ⏱️ \`${s.gate}\` 첫 회 ${s.firstMs}ms → 재확인 ${s.recheckMs}ms` +
+          ` (${Math.round((s.recheckMs / s.firstMs) * 100)}%)`,
+      )
+    lines.push(
+      ``,
+      `> 같은 리비전에 같은 명령인데 훨씬 빨리 끝났다. 빌드 캐시로 스킵됐다면 이 재확인은` +
+        ` 아무것도 확인하지 않은 것이다 — 데몬이 덥혀져 정직하게 빨라졌을 수도 있으니 판정은 사람이 한다.`,
+    )
+  }
+
   // 밀려난 제안을 남긴다. 이게 없으면 "에이전트가 러너의 결함을 짚었는데 러너가 삼킨"
   // 실행이 리포트상으로는 아무 일도 없었던 실행과 구별되지 않는다
   if (result.dropped && result.dropped.length > 0) {

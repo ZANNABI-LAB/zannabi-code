@@ -5,7 +5,7 @@ import { runGate, preflightGates, type GateWarning } from './gates'
 import { planPrompt, executePrompt, failureSummary } from './prompts'
 import { captureRevision } from './revision'
 import { roundSignature, repeatOf, shouldStop, DEFAULT_STALL_LIMIT } from './progress'
-import { recheckGates, recheckWarnings, DEFAULT_VERIFY_REPEAT } from './flaky'
+import { recheckGates, recheckWarnings, recheckSuspects, DEFAULT_VERIFY_REPEAT } from './flaky'
 import type { RunStore } from './store'
 
 export type ApprovalDecision = { action: 'approve' } | { action: 'abort'; reason?: string }
@@ -268,6 +268,17 @@ export async function runLoop(opts: LoopOptions): Promise<LoopResult> {
         )
         round.recheck = recheck.evidence
         if (recheck.flaky.length > 0) round.flaky = recheck.flaky
+        // 결과가 갈리지 않았더라도 재확인이 실제로 다시 돌았는지는 별개 질문이다.
+        // 사전 경고(recheckWarnings)가 명령어 이름으로 못 잡은 경우를 여기서 소요시간으로 잡는다
+        const suspects = recheckSuspects(evidence, recheck.evidence)
+        if (suspects.length > 0) {
+          round.recheckSuspects = suspects
+          for (const s of suspects)
+            opts.log(
+              `재확인 경고 [${s.gate}] 첫 회 ${s.firstMs}ms → 재확인 ${s.recheckMs}ms` +
+                ' — 두 번째 실행이 같은 일을 하지 않았을 수 있습니다',
+            )
+        }
         opts.store.writeEvidence(rounds)
         if (recheck.flaky.length > 0)
           return {

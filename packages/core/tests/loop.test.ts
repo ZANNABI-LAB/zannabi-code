@@ -459,3 +459,27 @@ test('--no-suggest로 버린 제안도 무엇을 버렸는지 남긴다', async 
   expect(result.status).toBe('success')
   expect(result.dropped).toEqual([{ name: 'g', cmd: 'false', reason: 'rejected' }])
 })
+
+// 첫 회만 오래 걸리고 두 번째부터 즉시 끝나는 게이트 — 빌드 캐시 스킵의 축소판이다.
+// 5초를 실제로 기다린다(RECHECK_MIN_MS 아래는 판단하지 않으므로 줄일 수 없다)
+test('재확인이 첫 회보다 극단적으로 짧으면 통과시키되 정황을 남긴다', async () => {
+  const cwd = mkdtempSync(join(tmpdir(), 'zannabi-skip-'))
+  const marker = join(cwd, 'built.marker')
+  const logs: string[] = []
+  const adapter = new FakeAdapter([
+    fakeResult(planText(`test -f ${marker} || sleep 5.2; touch ${marker}`)),
+    fakeResult('했음'),
+  ])
+  const result = await runLoop(options({
+    adapter, cwd, store: new RunStore(cwd, 'skip'),
+    budget: 1, verifyRepeat: 2, gateTimeoutMs: 30_000,
+    log: m => logs.push(m),
+  }))
+
+  // 통과는 통과다 — 정황만으로 완료를 무르지 않는다
+  expect(result.status).toBe('success')
+  const suspects = result.rounds[0].recheckSuspects ?? []
+  expect(suspects).toHaveLength(1)
+  expect(suspects[0].recheckMs).toBeLessThan(suspects[0].firstMs * 0.4)
+  expect(logs.some(m => m.includes('재확인 경고'))).toBe(true)
+}, 30_000) // 게이트가 실제로 5.2초를 쓰므로 기본 타임아웃(5s)으로는 모자란다

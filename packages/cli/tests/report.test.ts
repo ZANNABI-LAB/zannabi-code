@@ -210,3 +210,18 @@ test('in 열이 캐시와 겹치지 않는다는 사실을 표에 밝힌다', ()
   expect(report).toContain('| 합계 | 2 | 61,469 | 811,756 | 150 | - |')
   expect(report).toContain('총 입력은 둘의 합이다')
 })
+
+test('재확인이 헛돌았을 정황이 리포트에 숫자로 남는다', () => {
+  const suspect = { gate: 'build', firstMs: 54_900, recheckMs: 14_800 }
+  const report = buildReport(
+    {
+      status: 'success',
+      attempts: 1,
+      rounds: [{ ...round(1, 'aaa'), recheckSuspects: [suspect] }],
+    },
+    '작업',
+  )
+  expect(report).toContain('## 재확인이 헛돌았을 수 있는 게이트')
+  expect(report).toContain('첫 회 54900ms → 재확인 14800ms (27%)')
+  expect(report).toContain('판정은 사람이 한다')
+})

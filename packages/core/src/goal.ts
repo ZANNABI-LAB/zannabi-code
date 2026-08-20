@@ -141,6 +141,13 @@ export const RoundSchema = z.object({
   recheck: z.array(EvidenceSchema).optional(),
   /** 재확인에서 결과가 갈린 게이트 이름들. 비어 있지 않으면 그 통과는 증거가 아니다 */
   flaky: z.array(z.string()).optional(),
+  /**
+   * 재확인이 첫 회보다 극단적으로 짧게 끝난 게이트. 통과를 무르지는 않지만,
+   * "재확인했다"는 말이 실제로 무엇을 확인한 것인지 사람이 따져 볼 근거를 남긴다.
+   */
+  recheckSuspects: z
+    .array(z.object({ gate: z.string(), firstMs: z.number(), recheckMs: z.number() }))
+    .optional(),
 })
 export type Round = z.infer<typeof RoundSchema>
 
