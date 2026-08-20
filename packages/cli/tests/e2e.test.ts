@@ -303,3 +303,28 @@ test('E2E: --yes는 실행 불가한 게이트에는 여전히 멈춘다', async
   expect(exitCode).toBe(1)
   expect(out).toContain('aborted')
 })
+
+test('E2E: 실행 중 .zannabi.json이 바뀌면 리포트와 stderr가 그것을 세운다', async () => {
+  const project = mkdtempSync(join(tmpdir(), 'zannabi-e2e-config-'))
+  // 게이트가 자기 설정 파일을 지우는 상황을 만든다 — 실전에서는 에이전트가 그렇게 했다
+  writeFileSync(
+    join(project, '.zannabi.json'),
+    JSON.stringify({
+      gates: [{ name: 'recovery', cmd: `printf '%s' '{"gates":[]}' > .zannabi.json` }],
+    }),
+  )
+  const proc = Bun.spawn(['bun', cliPath, 'run', '테스트 작업', '--cwd', project, '--yes'], {
+    env: { ...process.env, ZANNABI_ADAPTER: 'fake' },
+    stdout: 'pipe',
+    stderr: 'pipe',
+  })
+  const exitCode = await proc.exited
+  const out = await new Response(proc.stdout).text()
+  const err = await new Response(proc.stderr).text()
+
+  // 이번 판정은 시작 시 읽은 설정으로 했으므로 유효하다 — 문제는 다음 실행이다
+  expect(exitCode).toBe(0)
+  expect(out).toContain('실행 중 .zannabi.json이 바뀌었다')
+  expect(out).toContain('게이트 `recovery`가 사라졌다')
+  expect(err).toContain('다음 실행부터는 완료 기준이 약해집니다')
+})

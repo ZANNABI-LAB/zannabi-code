@@ -225,3 +225,22 @@ test('재확인이 헛돌았을 정황이 리포트에 숫자로 남는다', () 
   expect(report).toContain('첫 회 54900ms → 재확인 14800ms (27%)')
   expect(report).toContain('판정은 사람이 한다')
 })
+
+test('실행 중 게이트가 사라지면 리포트가 그것을 세운다', () => {
+  const report = buildReport({ status: 'success', attempts: 1, rounds: [round(1, 'aaa')] }, '작업', {
+    removed: false,
+    created: false,
+    droppedGates: ['recovery'],
+    addedGates: ['basic-auth'],
+    rewrittenGates: [],
+  })
+  expect(report).toContain('## 실행 중 .zannabi.json이 바뀌었다')
+  expect(report).toContain('게이트 `recovery`가 사라졌다')
+  expect(report).toContain('게이트 `basic-auth`가 추가됐다')
+  expect(report).toContain('작업하는 쪽이 합격선을 낮출 수 있다면 그것은 합격선이 아니다')
+})
+
+test('설정이 안 바뀌면 그 절은 나오지 않는다', () => {
+  const report = buildReport({ status: 'success', attempts: 1, rounds: [round(1, 'aaa')] }, '작업')
+  expect(report).not.toContain('.zannabi.json이 바뀌었다')
+})

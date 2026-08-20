@@ -1,4 +1,7 @@
-import { addUsage, emptyUsage, type LoopResult, type Usage } from '@zannabi-lab/core'
+import {
+  addUsage, emptyUsage, CONFIG_FILENAME,
+  type ConfigChange, type LoopResult, type Usage,
+} from '@zannabi-lab/core'
 
 // diff 캡처는 core로 옮겼다 — 루프가 라운드마다 워킹트리를 찍어야 하기 때문이다.
 // CLI는 최종 diff 저장에만 쓰므로 여기서는 재수출만 한다
@@ -32,7 +35,11 @@ function usageLines(usage: { plan: Usage; exec: Usage }): string[] {
   ]
 }
 
-export function buildReport(result: LoopResult, intent: string): string {
+export function buildReport(
+  result: LoopResult,
+  intent: string,
+  configChange?: ConfigChange,
+): string {
   const lines = [
     `# zannabi run report`,
     ``,
@@ -89,6 +96,23 @@ export function buildReport(result: LoopResult, intent: string): string {
           : `- ⚠️ \`${d.name}\` (\`${d.cmd}\`) → 같은 이름의 사용자 게이트에 밀림` +
             ` · 실제 실행: \`${d.keptCmd}\``,
       )
+  }
+
+  // 완료의 정의가 실행 도중에 바뀌었으면 세운다. 금지가 아니라 가시화다 — 게이트를 더한
+  // 실행도 있었고 그건 좋은 방향이었다. 다만 줄어든 것을 모르고 지나가서는 안 된다
+  if (configChange) {
+    lines.push(``, `## 실행 중 ${CONFIG_FILENAME}이 바뀌었다`, ``)
+    if (configChange.removed) lines.push(`- 🚨 설정 파일이 삭제됐다 — 게이트 전부가 사라진다`)
+    if (configChange.created) lines.push(`- 🆕 실행 중에 설정 파일이 새로 생겼다`)
+    for (const g of configChange.droppedGates)
+      lines.push(`- 🚨 게이트 \`${g}\`가 사라졌다 — 다음 실행부터 완료 기준이 그만큼 약해진다`)
+    for (const g of configChange.addedGates) lines.push(`- ➕ 게이트 \`${g}\`가 추가됐다`)
+    for (const g of configChange.rewrittenGates) lines.push(`- ✏️ 게이트 \`${g}\`의 명령이 바뀌었다`)
+    lines.push(
+      ``,
+      `> 이번 판정은 **시작 시 읽은 설정**으로 했으므로 위 변경에 영향받지 않는다.` +
+        ` 문제는 다음 실행이다 — 작업하는 쪽이 합격선을 낮출 수 있다면 그것은 합격선이 아니다.`,
+    )
   }
 
   // 어느 턴도 사용량을 보고하지 않았으면 표를 만들지 않는다 — 0으로 채운 표는

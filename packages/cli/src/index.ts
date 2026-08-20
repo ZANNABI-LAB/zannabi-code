@@ -5,6 +5,7 @@ import { createInterface } from 'node:readline/promises'
 import { resolve } from 'node:path'
 import {
   RunStore, runLoop, FakeAdapter, fakeResult, GateSchema, loadConfig,
+  configFingerprint, compareConfig,
   PROFILES, PROFILE_NAMES, isProfileName,
   DEFAULT_STALL_LIMIT, DEFAULT_VERIFY_REPEAT, DEFAULT_GATE_TIMEOUT_MS, CONFIG_FILENAME,
   type Gate, type GateWarning, type AgentAdapter, type ApprovalDecision, type Profile,
@@ -210,6 +211,10 @@ async function main() {
     process.exit(1)
   }
 
+  // 완료의 정의가 실행 도중에 바뀌는지 본다 — 설정 파일은 대상 저장소 안에 있어
+  // 작업하는 에이전트가 쓸 수 있다. 실제로 게이트를 지운 실행이 있었다
+  const configBefore = { fingerprint: configFingerprint(cwd), config }
+
   const store = new RunStore(cwd, intent)
   const { buildReport, captureDiff } = await import('./report')
 
@@ -232,9 +237,10 @@ async function main() {
     log: message => console.log(`[zannabi] ${message}`),
   })
 
+  const configChange = compareConfig(configBefore, cwd)
   const diff = await captureDiff(cwd)
   if (diff) store.writeDiff(diff)
-  const report = buildReport(result, intent)
+  const report = buildReport(result, intent, configChange)
   store.writeReport(report)
 
   console.log(`\n${report}\n`)
@@ -254,6 +260,11 @@ async function main() {
     console.error(
       '[zannabi] 진전이 없어 예산을 남기고 중단했습니다. ' +
       '게이트가 실제로 달성 가능한지 보고, 필요하면 --stall-limit으로 조절하세요.',
+    )
+  if (configChange && (configChange.droppedGates.length > 0 || configChange.removed))
+    console.error(
+      '[zannabi] 실행 도중 설정 파일에서 게이트가 사라졌습니다 — 이번 판정은 시작 시 읽은 ' +
+      '원본으로 했지만, 다음 실행부터는 완료 기준이 약해집니다. 리포트를 확인하세요.',
     )
   if (result.detail) console.error(`[zannabi] 사유: ${result.detail}`)
   process.exit(result.status === 'success' ? 0 : 1)
