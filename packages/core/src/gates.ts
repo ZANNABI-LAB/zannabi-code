@@ -22,6 +22,58 @@ async function collect(stream: ReadableStream<Uint8Array> | null, sink: { text: 
   }
 }
 
+/**
+ * 실패를 설명하는 줄을 알아보는 패턴들.
+ *
+ * `stdoutTail`을 늘리는 것으로는 안 되는 이유: 실측에서 잘린 것은 크기 부족이 아니라
+ * **노이즈**였다. 시험 수백 건의 PASSED와 Spring 종료 로그가 꼬리를 채워 정작 `FAILED`
+ * 줄이 창 밖으로 밀렸다. 4000을 8000으로 올려도 시험이 많으면 또 밀린다.
+ * 그래서 크기를 키우는 대신 **신호를 추린다.**
+ *
+ * 도구를 특정하지 않는다 — 어느 러너에서든 실패는 대개 이 낱말들로 말한다.
+ * 못 알아본 형식은 여전히 tail에 남으므로, 이 목록이 틀려도 잃는 것은 없다.
+ */
+const SIGNAL_PATTERNS = [
+  /\bFAILED\b/,
+  /\bFAIL(URE)?S?\b/,
+  /\bERROR\b/,
+  /\berror:/i,
+  /Syntax error/i,
+  /Exception\b/,
+  /Assertion\w*(Error|Failed)/i, // JUnit5는 AssertionFailedError로 말한다
+  /Caused by:/,
+  /Compilation (error|failed)/i,
+  /^\s*e: /, // kotlinc
+  /^\s*\d+\) /, // 시험 실패 목록
+  /panic:/,
+  /Traceback \(most recent call last\)/,
+]
+
+/** 신호 줄은 이만큼만 싣는다. 이보다 많으면 그것대로 tail을 읽어야 할 신호다 */
+const MAX_SIGNAL_LINES = 30
+const SIGNAL_LINE_CHARS = 300
+
+/**
+ * 출력에서 실패를 설명하는 줄만 추린다. 순서는 원본 그대로 — 인과가 순서에 담긴다.
+ *
+ * 성공한 게이트에는 쓰지 않는다. 통과 로그의 "0 errors" 같은 줄까지 신호로 실으면
+ * 신호와 잡음의 비율이 다시 나빠진다.
+ */
+export function signalLines(text: string): string[] {
+  const seen = new Set<string>()
+  const picked: string[] = []
+  for (const raw of text.split('\n')) {
+    const line = raw.trimEnd()
+    if (!line.trim() || !SIGNAL_PATTERNS.some(p => p.test(line))) continue
+    const clipped = line.slice(0, SIGNAL_LINE_CHARS)
+    if (seen.has(clipped)) continue // 같은 줄이 회차마다 반복되는 로그가 흔하다
+    seen.add(clipped)
+    picked.push(clipped)
+    if (picked.length >= MAX_SIGNAL_LINES) break
+  }
+  return picked
+}
+
 export interface GateWarning {
   gate: string
   cmd: string
@@ -110,11 +162,14 @@ export async function runGate(gate: Gate, opts: RunGateOptions): Promise<Evidenc
       : exitCode === 0
         ? 'pass'
         : 'fail'
+  // 실패한 게이트만 신호를 추린다 — 진단이 필요한 자리가 거기다
+  const signals = outcome === 'pass' ? [] : signalLines(`${stdoutSink.text}\n${stderrSink.text}`)
   return {
     gate: gate.name,
     cmd: gate.cmd,
     source: gate.source,
     outcome,
+    ...(signals.length > 0 ? { signals } : {}),
     exitCode,
     stdoutTail: stdoutSink.text.slice(-TAIL_CHARS),
     stderrTail: stderrSink.text.slice(-TAIL_CHARS),

@@ -1,5 +1,9 @@
 import { test, expect } from 'bun:test'
-import { runGate, preflightGates } from '../src/gates'
+import { mkdtempSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
+import { runGate, preflightGates, signalLines } from '../src/gates'
+import { GateSchema } from '../src/goal'
 
 const cwd = process.cwd()
 const gate = (cmd: string, timeoutMs = 300_000) =>
@@ -72,4 +76,42 @@ test('사전점검: 통과/불통과는 판정하지 않는다 (실패하는 게
 test('사전점검: 판정 불가한 형태(환경변수 대입·서브셸)는 건너뛴다', async () => {
   const gates = [gate('FOO=1 nonexistent-xyz'), gate('$(echo nonexistent-xyz)')]
   expect(await preflightGates(gates, { cwd })).toHaveLength(0)
+})
+
+test('통과 로그에 파묻힌 실패 줄을 추려낸다 — tail을 늘려서는 안 되는 자리다', () => {
+  // 실측 상황의 축소판: 통과 로그가 꼬리를 채우고 FAILED가 그 위로 밀린다
+  const output = [
+    'SwapStationTest > 정상_교환 PASSED',
+    'ChargeTest > csms.security.profile=NONE PASSED',
+    'LoadAuditTest > 감사로그_적재 FAILED',
+    '    org.opentest4j.AssertionFailedError: expected: <3> but was: <5>',
+    ...Array.from({ length: 300 }, (_, i) => `OtherTest > case${i} PASSED`),
+    'Shutting down ExecutorService',
+  ].join('\n')
+
+  const signals = signalLines(output)
+  expect(signals).toContain('LoadAuditTest > 감사로그_적재 FAILED')
+  expect(signals.some(l => l.includes('AssertionFailedError'))).toBe(true)
+  expect(signals.some(l => l.includes('PASSED') && !l.includes('FAILED'))).toBe(false)
+})
+
+test('같은 줄이 반복되면 한 번만 싣는다 — 회차마다 같은 스택이 쌓인다', () => {
+  const repeated = Array.from({ length: 20 }, () => 'e: Unresolved reference: foo').join('\n')
+  expect(signalLines(repeated)).toEqual(['e: Unresolved reference: foo'])
+})
+
+test('신호가 없으면 빈 배열 — 못 알아본 형식은 tail에 그대로 남는다', () => {
+  expect(signalLines('all good\nnothing to see')).toEqual([])
+})
+
+test('통과한 게이트에는 신호를 달지 않는다', async () => {
+  const cwd = mkdtempSync(join(tmpdir(), 'zannabi-signal-pass-'))
+  const gate = GateSchema.parse({ name: 'ok', cmd: 'echo "0 ERROR found"' })
+  expect((await runGate(gate, { cwd })).signals).toBeUndefined()
+})
+
+test('실패한 게이트의 증거에 신호가 실린다', async () => {
+  const cwd = mkdtempSync(join(tmpdir(), 'zannabi-signal-fail-'))
+  const gate = GateSchema.parse({ name: 'ng', cmd: 'echo "SwapTest FAILED"; exit 1' })
+  expect((await runGate(gate, { cwd })).signals).toEqual(['SwapTest FAILED'])
 })

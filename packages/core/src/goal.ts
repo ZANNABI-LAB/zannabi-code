@@ -120,6 +120,13 @@ export const EvidenceSchema = z.object({
   stderrTail: z.string(),
   durationMs: z.number(),
   timestamp: z.string(),
+  /**
+   * 출력에서 추린 실패 신호 줄. 통과한 게이트에는 없다.
+   *
+   * tail은 꼬리 4000자라 시험 수백 건의 통과 로그에 밀려 정작 실패 줄이 잘린다.
+   * 크기를 키우는 대신 신호를 따로 뽑아 리포트가 원인부터 말하게 한다.
+   */
+  signals: z.array(z.string()).optional(),
   /** 이 증거가 어떤 리비전에서 나왔는지(설계 §5). 증거 한 줄만 떼어 봐도 대상이 특정돼야 한다 */
   revision: RevisionSchema.optional(),
 })

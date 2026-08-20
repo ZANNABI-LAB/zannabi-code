@@ -245,6 +245,49 @@ test('설정이 안 바뀌면 그 절은 나오지 않는다', () => {
   expect(report).not.toContain('.zannabi.json이 바뀌었다')
 })
 
+test('실패한 게이트의 신호 줄이 리포트에 딸려 나온다', () => {
+  const evidence = [
+    {
+      gate: 'build', cmd: './gradlew build', source: 'user' as const,
+      outcome: 'fail' as const, exitCode: 1,
+      stdoutTail: '', stderrTail: '', durationMs: 10, timestamp: 't',
+      signals: ['LoadAuditTest > 감사로그_적재 FAILED'],
+    },
+  ]
+  const report = buildReport(
+    { status: 'budget-exhausted', attempts: 1, rounds: [{ ...round(1, 'aaa'), evidence }] },
+    '작업',
+  )
+  expect(report).toContain('LoadAuditTest > 감사로그_적재 FAILED')
+})
+
+test('재확인에서 갈린 게이트는 회차별 결과가 남는다 — 간헐인지 결정론인지 갈린다', () => {
+  const base = {
+    gate: 'build', cmd: './gradlew build', source: 'user' as const,
+    stdoutTail: '', stderrTail: '', durationMs: 10, timestamp: 't',
+  }
+  const report = buildReport(
+    {
+      status: 'unreproduced-pass',
+      attempts: 1,
+      rounds: [{
+        ...round(1, 'aaa'),
+        evidence: [{ ...base, outcome: 'pass' as const, exitCode: 0 }],
+        unreproduced: ['build'],
+        recheck: [
+          { ...base, outcome: 'fail' as const, exitCode: 1, signals: ['SwapMetricsTest FAILED'] },
+          { ...base, outcome: 'fail' as const, exitCode: 1 },
+        ],
+      }],
+    },
+    '작업',
+  )
+  expect(report).toContain('## 재확인 회차별 결과')
+  expect(report).toContain('첫 회 ✅ → 재확인 ❌ ❌')
+  expect(report).toContain('SwapMetricsTest FAILED')
+  expect(report).toContain('이전 실행이 남긴 상태를 의심한다')
+})
+
 test('정체 감지가 죽은 조합이면 리포트 머리에 세운다', () => {
   const report = buildReport(
     { status: 'budget-exhausted', attempts: 3, rounds: [round(1, 'aaa')], stallDead: true },

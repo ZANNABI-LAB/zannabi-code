@@ -72,6 +72,27 @@ export function buildReport(
       `- ${mark} \`${e.gate}\` (\`${e.cmd}\`) → exit ${e.exitCode}, ${e.durationMs}ms` +
         ` · ${e.source === 'user' ? '사용자' : '제안'}${unreproduced}`,
     )
+    // 실패 원인을 리포트에서 바로 읽게 한다. tail은 통과 로그에 밀려 원인이 잘리므로
+    // 여기 실리는 것은 꼬리가 아니라 추려낸 신호다
+    for (const signal of e.signals ?? []) lines.push(`  - \`${signal}\``)
+  }
+
+  // 재확인에서 갈린 게이트의 회차별 결과. status 한 줄로는 간헐인지 결정론인지 구별되지 않는다
+  const unreproducedGates = last?.unreproduced ?? []
+  if (unreproducedGates.length > 0 && last?.recheck) {
+    lines.push(``, `## 재확인 회차별 결과`, ``)
+    for (const gate of unreproducedGates) {
+      const runs = last.recheck.filter(e => e.gate === gate)
+      const marks = runs.map(r => (r.outcome === 'pass' ? '✅' : r.outcome === 'fail' ? '❌' : '⚠️'))
+      lines.push(`- \`${gate}\` 첫 회 ✅ → 재확인 ${marks.join(' ')}`)
+      for (const signal of runs.flatMap(r => r.signals ?? []).slice(0, 10))
+        lines.push(`  - \`${signal}\``)
+    }
+    lines.push(
+      ``,
+      `> 2회차부터 일정하게 깨졌다면 간헐적 실패가 아니라 이전 실행이 남긴 상태를 의심한다` +
+        ` — 실전 첫 사례가 그랬다.`,
+    )
   }
 
   // 재확인이 헛돌았을 정황. 통과 자체는 유효하므로 게이트 줄을 바꾸지 않고 따로 적는다 —
