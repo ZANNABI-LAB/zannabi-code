@@ -332,8 +332,8 @@ test('git 저장소가 아니면 정체 감지가 스스로 꺼진다', async ()
   expect(result.rounds[2].revision.tracked).toBe(false)
 })
 
-test('통과 재확인에서 결과가 갈리면 flaky-gate — 재현 안 되는 통과는 증거가 아니다', async () => {
-  const cwd = await gitRepo('zannabi-flaky-')
+test('통과 재확인에서 결과가 갈리면 unreproduced-pass — 재현 안 되는 통과는 증거가 아니다', async () => {
+  const cwd = await gitRepo('zannabi-unreproduced-')
   // 첫 실행만 통과하고 다음부터 실패하는 게이트 — 간헐 실패의 최소 재현
   const marker = join(cwd, 'flag')
   writeFileSync(marker, 'x')
@@ -341,11 +341,11 @@ test('통과 재확인에서 결과가 갈리면 flaky-gate — 재현 안 되�
     fakeResult(planText(`test -f flag && rm flag`)), fakeResult('했음'),
   ])
   const result = await runLoop(options({
-    adapter, cwd, store: new RunStore(cwd, 'flaky'), verifyRepeat: 3,
+    adapter, cwd, store: new RunStore(cwd, 'unreproduced'), verifyRepeat: 3,
   }))
 
-  expect(result.status).toBe('flaky-gate')
-  expect(result.rounds[0].flaky).toEqual(['g'])
+  expect(result.status).toBe('unreproduced-pass')
+  expect(result.rounds[0].unreproduced).toEqual(['g'])
   expect(result.rounds[0].evidence[0].outcome).toBe('pass') // 원본 증거는 그대로 남는다
   expect(result.rounds[0].recheck?.[0].outcome).toBe('fail')
 })
@@ -358,7 +358,7 @@ test('재확인이 모두 통과하면 success이고 recheck 증거가 남는다
   }))
 
   expect(result.status).toBe('success')
-  expect(result.rounds[0].flaky).toBeUndefined()
+  expect(result.rounds[0].unreproduced).toBeUndefined()
   expect(result.rounds[0].recheck).toHaveLength(2) // 총 3회 중 추가 2회
 })
 

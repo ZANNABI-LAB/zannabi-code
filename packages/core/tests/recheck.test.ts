@@ -1,6 +1,6 @@
 import { test, expect } from 'bun:test'
 import { GateSchema, type Evidence } from '../src/goal'
-import { recheckWarnings, recheckSuspects } from '../src/flaky'
+import { recheckWarnings, recheckSuspects } from '../src/recheck'
 
 const gate = (name: string, cmd: string) => GateSchema.parse({ name, cmd })
 

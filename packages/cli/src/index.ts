@@ -251,10 +251,12 @@ async function main() {
     console.error('[zannabi] 게이트 환경 오류 — 명령이 이 환경에서 실행 가능한지 확인하세요.')
   if (result.status === 'agent-error')
     console.error('[zannabi] 에이전트 실행 실패 — 아래 사유를 확인하세요.')
-  if (result.status === 'flaky-gate')
+  if (result.status === 'unreproduced-pass')
     console.error(
-      '[zannabi] 게이트 통과가 재현되지 않았습니다. 간헐적으로 실패하는 게이트를 ' +
-      '고치거나, 재확인이 과하면 --verify-repeat 1로 끄세요.',
+      '[zannabi] 게이트 통과가 재현되지 않았습니다. 원인은 간헐적 실패일 수도 있고, ' +
+      '두 번째 실행부터 항상 깨지는 결정론적 결함일 수도 있습니다 — 실전 첫 사례는 후자였습니다' +
+      '(이전 실행이 남긴 상태를 다음 실행이 함께 세는 종류). 재확인 증거의 회차별 결과를 ' +
+      '먼저 보고, 재확인이 과하면 --verify-repeat 1로 끄세요.',
     )
   if (result.status === 'no-progress')
     console.error(

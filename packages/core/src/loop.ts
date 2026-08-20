@@ -5,7 +5,7 @@ import { runGate, preflightGates, type GateWarning } from './gates'
 import { planPrompt, executePrompt, failureSummary } from './prompts'
 import { captureRevision } from './revision'
 import { roundSignature, repeatOf, shouldStop, DEFAULT_STALL_LIMIT } from './progress'
-import { recheckGates, recheckWarnings, recheckSuspects, DEFAULT_VERIFY_REPEAT } from './flaky'
+import { recheckGates, recheckWarnings, recheckSuspects, DEFAULT_VERIFY_REPEAT } from './recheck'
 import type { RunStore } from './store'
 
 export type ApprovalDecision = { action: 'approve' } | { action: 'abort'; reason?: string }
@@ -66,7 +66,7 @@ export interface LoopResult {
     | 'agent-error'
     | 'no-gates'
     | 'no-progress'
-    | 'flaky-gate'
+    | 'unreproduced-pass'
   attempts: number
   /** 라운드별 기록. 각 라운드가 어떤 리비전을 검사했고 앞 라운드의 반복인지까지 담는다 */
   rounds: Round[]
@@ -267,7 +267,7 @@ export async function runLoop(opts: LoopOptions): Promise<LoopResult> {
           runGate(gate, { cwd: opts.cwd, revision }),
         )
         round.recheck = recheck.evidence
-        if (recheck.flaky.length > 0) round.flaky = recheck.flaky
+        if (recheck.unreproduced.length > 0) round.unreproduced = recheck.unreproduced
         // 결과가 갈리지 않았더라도 재확인이 실제로 다시 돌았는지는 별개 질문이다.
         // 사전 경고(recheckWarnings)가 명령어 이름으로 못 잡은 경우를 여기서 소요시간으로 잡는다
         const suspects = recheckSuspects(evidence, recheck.evidence)
@@ -280,17 +280,17 @@ export async function runLoop(opts: LoopOptions): Promise<LoopResult> {
             )
         }
         opts.store.writeEvidence(rounds)
-        if (recheck.flaky.length > 0)
+        if (recheck.unreproduced.length > 0)
           return {
-            status: 'flaky-gate',
+            status: 'unreproduced-pass',
             attempts: attempt,
             rounds,
             runtime,
             usage,
             dropped,
             detail:
-              `재확인에서 결과가 갈린 게이트: ${recheck.flaky.join(', ')}` +
-              ' — 통과가 재현되지 않아 완료로 보지 않습니다',
+              `통과가 재현되지 않은 게이트: ${recheck.unreproduced.join(', ')}` +
+              ' — 첫 회는 통과했으나 다시 돌리자 같은 결과가 나오지 않아 완료로 보지 않습니다',
           }
       }
       return { status: 'success', attempts: attempt, rounds, runtime, usage, dropped }

@@ -144,7 +144,7 @@ test('사용량은 계획/실행으로 나뉘고, 비용을 안 주는 러너는
   expect(report).toContain('| 합계 | 3 | 1,500 | 0 | 300 | $0.2500 |')
 })
 
-test('게이트 줄에 출처와 flaky 표시가 붙는다', () => {
+test('게이트 줄에 출처와 재현 실패 표시가 붙는다', () => {
   const evidence = [
     {
       gate: 'u', cmd: 'true', source: 'user' as const, outcome: 'pass' as const, exitCode: 0,
@@ -153,14 +153,14 @@ test('게이트 줄에 출처와 flaky 표시가 붙는다', () => {
   ]
   const report = buildReport(
     {
-      status: 'flaky-gate',
+      status: 'unreproduced-pass',
       attempts: 1,
-      rounds: [{ ...round(1, 'aaa'), evidence, flaky: ['u'] }],
+      rounds: [{ ...round(1, 'aaa'), evidence, unreproduced: ['u'] }],
     },
     '작업',
   )
   expect(report).toContain('사용자')
-  expect(report).toContain('🎲 flaky')
+  expect(report).toContain('🔁 재현 안 됨')
 })
 
 test('밀려난 제안 게이트가 리포트에 남는다 — 실행된 명령과 나란히', () => {

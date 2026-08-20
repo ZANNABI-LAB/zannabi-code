@@ -139,8 +139,11 @@ export const RoundSchema = z.object({
   repeatOf: z.number().int().positive().optional(),
   /** 통과를 재확인하려고 게이트를 더 돌린 결과. 원본 증거를 덮어쓰지 않고 나란히 남긴다 */
   recheck: z.array(EvidenceSchema).optional(),
-  /** 재확인에서 결과가 갈린 게이트 이름들. 비어 있지 않으면 그 통과는 증거가 아니다 */
-  flaky: z.array(z.string()).optional(),
+  /**
+   * 재확인에서 통과가 재현되지 않은 게이트 이름들. 비어 있지 않으면 그 통과는 증거가 아니다.
+   * 원인이 간헐성인지 결정론적 결함인지는 이 값이 말하지 않는다 — 실전 첫 사례는 후자였다.
+   */
+  unreproduced: z.array(z.string()).optional(),
   /**
    * 재확인이 첫 회보다 극단적으로 짧게 끝난 게이트. 통과를 무르지는 않지만,
    * "재확인했다"는 말이 실제로 무엇을 확인한 것인지 사람이 따져 볼 근거를 남긴다.

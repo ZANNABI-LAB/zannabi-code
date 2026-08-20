@@ -97,8 +97,15 @@ export function recheckSuspects(first: Evidence[], recheck: Evidence[]): Recheck
 export interface RecheckResult {
   /** 추가 실행에서 나온 증거. 원본을 덮어쓰지 않고 나란히 쌓인다 */
   evidence: Evidence[]
-  /** 한 번이라도 통과하지 않은 게이트 이름 */
-  flaky: string[]
+  /**
+   * 재확인에서 통과가 재현되지 않은 게이트 이름.
+   *
+   * `flaky`라 부르지 않는 이유: 실전에서 여기 걸린 첫 사례는 간헐적 실패가 아니라
+   * **두 번째 실행부터 항상 실패**하는 결정론적 결함이었다(전역 집계가 이전 실행 로그까지 셌다).
+   * 이름이 원인을 간헐성으로 좁히면 사람이 그쪽만 뒤진다. 여기서 확실히 말할 수 있는 것은
+   * "재현되지 않았다"까지다.
+   */
+  unreproduced: string[]
 }
 
 /**
@@ -113,14 +120,14 @@ export async function recheckGates(
   run: (gate: Gate) => Promise<Evidence>,
 ): Promise<RecheckResult> {
   const evidence: Evidence[] = []
-  const flaky = new Set<string>()
+  const unreproduced = new Set<string>()
   for (let pass = 1; pass < repeat; pass++) {
     for (const gate of gates) {
       const result = await run(gate)
       evidence.push(result)
-      if (result.outcome !== 'pass') flaky.add(gate.name)
+      if (result.outcome !== 'pass') unreproduced.add(gate.name)
     }
-    if (flaky.size > 0) break
+    if (unreproduced.size > 0) break
   }
-  return { evidence, flaky: [...flaky] }
+  return { evidence, unreproduced: [...unreproduced] }
 }

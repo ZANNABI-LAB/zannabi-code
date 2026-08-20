@@ -61,10 +61,10 @@ export function buildReport(
   for (const e of last?.evidence ?? []) {
     const mark = e.outcome === 'pass' ? '✅' : e.outcome === 'fail' ? '❌' : '⚠️'
     // 출처를 적어야 "완료 기준이 안 됐다"와 "에이전트 자기 검사가 안 됐다"가 구별된다
-    const flaky = last?.flaky?.includes(e.gate) ? ' · 🎲 flaky' : ''
+    const unreproduced = last?.unreproduced?.includes(e.gate) ? ' · 🔁 재현 안 됨' : ''
     lines.push(
       `- ${mark} \`${e.gate}\` (\`${e.cmd}\`) → exit ${e.exitCode}, ${e.durationMs}ms` +
-        ` · ${e.source === 'user' ? '사용자' : '제안'}${flaky}`,
+        ` · ${e.source === 'user' ? '사용자' : '제안'}${unreproduced}`,
     )
   }
 
