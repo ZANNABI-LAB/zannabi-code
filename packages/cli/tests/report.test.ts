@@ -162,3 +162,32 @@ test('게이트 줄에 출처와 flaky 표시가 붙는다', () => {
   expect(report).toContain('사용자')
   expect(report).toContain('🎲 flaky')
 })
+
+test('밀려난 제안 게이트가 리포트에 남는다 — 실행된 명령과 나란히', () => {
+  const report = buildReport(
+    {
+      status: 'success',
+      attempts: 1,
+      rounds: [],
+      dropped: [
+        {
+          name: 'build',
+          cmd: './gradlew :csms:cleanTest build',
+          reason: 'name-collision',
+          keptCmd: './gradlew build',
+        },
+        { name: 'lint', cmd: 'bun lint', reason: 'rejected' },
+      ],
+    },
+    '테스트',
+  )
+  expect(report).toContain('## 반영되지 않은 제안 게이트')
+  expect(report).toContain('cleanTest build')
+  expect(report).toContain('실제 실행: `./gradlew build`')
+  expect(report).toContain('--reject-suggested로 받지 않음')
+})
+
+test('버려진 제안이 없으면 그 절은 아예 나오지 않는다', () => {
+  const report = buildReport({ status: 'success', attempts: 1, rounds: [], dropped: [] }, '테스트')
+  expect(report).not.toContain('반영되지 않은 제안 게이트')
+})

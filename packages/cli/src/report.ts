@@ -54,6 +54,19 @@ export function buildReport(result: LoopResult, intent: string): string {
     )
   }
 
+  // 밀려난 제안을 남긴다. 이게 없으면 "에이전트가 러너의 결함을 짚었는데 러너가 삼킨"
+  // 실행이 리포트상으로는 아무 일도 없었던 실행과 구별되지 않는다
+  if (result.dropped && result.dropped.length > 0) {
+    lines.push(``, `## 반영되지 않은 제안 게이트`, ``)
+    for (const d of result.dropped)
+      lines.push(
+        d.reason === 'rejected'
+          ? `- 🚫 \`${d.name}\` (\`${d.cmd}\`) → --reject-suggested로 받지 않음`
+          : `- ⚠️ \`${d.name}\` (\`${d.cmd}\`) → 같은 이름의 사용자 게이트에 밀림` +
+            ` · 실제 실행: \`${d.keptCmd}\``,
+      )
+  }
+
   // 어느 턴도 사용량을 보고하지 않았으면 표를 만들지 않는다 — 0으로 채운 표는
   // "공짜로 돌았다"로 읽히고, 그건 모른다는 사실과 다르다
   const reported = result.usage && result.usage.plan.turns + result.usage.exec.turns > 0

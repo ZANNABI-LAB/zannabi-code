@@ -419,3 +419,43 @@ test('계획 턴과 실행 턴의 사용량을 나눠 집계한다', async () =>
   expect(result.usage?.exec.costUsd).toBeUndefined()
   expect(result.usage?.exec.inputTokens).toBe(30)
 })
+
+test('이름 충돌로 밀린 제안 게이트는 경고로 뜨고 결과와 goal.json에 남는다', async () => {
+  const cwd = mkdtempSync(join(tmpdir(), 'zannabi-dropped-'))
+  let seen: GateWarning[] = []
+  const store = new RunStore(cwd, 'dropped')
+  // 제안은 'g' 이름으로 cleanTest를 붙여 오지만, 같은 이름의 사용자 게이트가 이긴다
+  const adapter = new FakeAdapter([fakeResult(planText('true # cleanTest')), fakeResult('했음')])
+  const result = await runLoop(options({
+    adapter, cwd, store,
+    userGates: [{ name: 'g', cmd: 'true', timeoutMs: 300000, source: 'user' }],
+    approve: async (_p, _g, warnings) => {
+      seen = warnings
+      return { action: 'approve' }
+    },
+  }))
+
+  expect(result.status).toBe('success')
+  expect(result.rounds[0].evidence.map(e => e.cmd)).toEqual(['true']) // 사용자 게이트가 실행됐다
+  expect(result.dropped).toEqual([
+    { name: 'g', cmd: 'true # cleanTest', reason: 'name-collision', keptCmd: 'true' },
+  ])
+  // 침묵하지 않는다 — 승인 화면에도, 증거에도 남는다
+  expect(seen.map(w => w.kind)).toEqual(['advisory'])
+  expect(seen[0].reason).toContain('같은 이름의 사용자 게이트')
+  const goal = JSON.parse(readFileSync(join(store.dir, 'goal.json'), 'utf-8'))
+  expect(goal.droppedGates).toHaveLength(1)
+})
+
+test('--no-suggest로 버린 제안도 무엇을 버렸는지 남긴다', async () => {
+  const cwd = mkdtempSync(join(tmpdir(), 'zannabi-dropped-reject-'))
+  const adapter = new FakeAdapter([fakeResult(planText('false')), fakeResult('했음')])
+  const result = await runLoop(options({
+    adapter, cwd, store: new RunStore(cwd, 'dropped-reject'),
+    userGates: [{ name: 'u', cmd: 'true', timeoutMs: 300000, source: 'user' }],
+    rejectSuggested: true,
+  }))
+
+  expect(result.status).toBe('success')
+  expect(result.dropped).toEqual([{ name: 'g', cmd: 'false', reason: 'rejected' }])
+})

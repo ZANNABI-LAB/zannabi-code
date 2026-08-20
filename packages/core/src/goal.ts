@@ -21,6 +21,55 @@ export const GateSchema = z.object({
 })
 export type Gate = z.infer<typeof GateSchema>
 
+/**
+ * 채택되지 못한 제안 게이트 한 건.
+ *
+ * 이 기록이 필요한 이유: 계획 에이전트가 *"이 게이트를 지금 형태로 두면 2회차가 캐시로
+ * 스킵돼 재확인이 헛돈다"* 고 정확히 진단하고 clean 단계를 붙인 명령을 제안했는데,
+ * 같은 이름의 사용자 게이트가 이겨서 경고 한 줄 없이 사라진 실행이 있었다.
+ * 사용자 게이트가 이기는 것 자체는 옳다 — 그게 완료의 정의니까. 문제는 **침묵**이었다.
+ */
+export const DroppedGateSchema = z.object({
+  name: z.string(),
+  cmd: z.string(),
+  /** `name-collision`은 같은 이름의 사용자 게이트에 밀린 것, `rejected`는 --reject-suggested */
+  reason: z.enum(['name-collision', 'rejected']),
+  /** 충돌일 때 대신 실행된 사용자 게이트의 명령. 두 명령의 차이가 곧 잃어버린 정보다 */
+  keptCmd: z.string().optional(),
+})
+export type DroppedGate = z.infer<typeof DroppedGateSchema>
+
+/**
+ * 사용자 게이트와 제안 게이트를 합친다. 이름이 겹치면 사용자 게이트가 이긴다.
+ *
+ * 밀려난 제안은 버리지 않고 {@link DroppedGate}로 돌려준다 — 호출자가 경고로 띄우고
+ * 증거에 남길 수 있어야 한다. 명령까지 똑같은 충돌은 잃은 것이 없으므로 보고하지 않는다.
+ */
+export function mergeGates(
+  userGates: Gate[],
+  suggested: Gate[],
+  opts: { reject?: boolean } = {},
+): { gates: Gate[]; dropped: DroppedGate[] } {
+  const dropped: DroppedGate[] = []
+  if (opts.reject)
+    return {
+      gates: [...userGates],
+      dropped: suggested.map(s => ({ name: s.name, cmd: s.cmd, reason: 'rejected' as const })),
+    }
+  const kept: Gate[] = [...userGates]
+  for (const s of suggested) {
+    const clash = kept.find(k => k.name === s.name)
+    if (!clash) {
+      kept.push(s)
+      continue
+    }
+    // 같은 이름·같은 명령이면 중복일 뿐 손실이 아니다
+    if (clash.cmd !== s.cmd)
+      dropped.push({ name: s.name, cmd: s.cmd, reason: 'name-collision', keptCmd: clash.cmd })
+  }
+  return { gates: kept, dropped }
+}
+
 /** 어떤 런타임 조합으로 돌았는지. 증거만 보고 재현할 수 있어야 한다 */
 export const RuntimeSchema = z.object({
   plan: z.string(),
@@ -32,6 +81,8 @@ export const GoalSchema = z.object({
   gates: z.array(GateSchema),
   budget: z.number().int().min(1).default(3),
   runtime: RuntimeSchema.optional(),
+  /** 채택되지 못한 제안 게이트. 무엇이 왜 빠졌는지가 증거에 남아야 한다 */
+  droppedGates: z.array(DroppedGateSchema).optional(),
   /** 루프를 지배한 설정. 증거만 보고 같은 조건을 다시 세울 수 있어야 한다 */
   loop: z
     .object({

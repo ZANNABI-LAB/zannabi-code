@@ -1,6 +1,6 @@
 import { addUsage, emptyUsage, type AgentAdapter, type Usage } from './adapter'
-import type { Gate, Evidence, Round } from './goal'
-import { extractGates } from './goal'
+import type { Gate, Evidence, Round, DroppedGate } from './goal'
+import { extractGates, mergeGates } from './goal'
 import { runGate, preflightGates, type GateWarning } from './gates'
 import { planPrompt, executePrompt, failureSummary } from './prompts'
 import { captureRevision } from './revision'
@@ -76,6 +76,13 @@ export interface LoopResult {
   detail?: string
   /** 어떤 조합으로 돌았는지 — 가설 측정의 기본 축이라 결과에 함께 남긴다 */
   runtime?: RuntimeLabels
+  /**
+   * 채택되지 못한 제안 게이트. 비어 있어도 배열로 남긴다.
+   *
+   * 에이전트가 러너의 눈먼 지점을 짚은 제안이 이름 충돌로 조용히 사라진 실행이 있었다.
+   * 결과에 실어야 report.md가 그것을 말할 수 있다.
+   */
+  dropped?: DroppedGate[]
 }
 
 /**
@@ -99,6 +106,24 @@ export function userGateSummary(rounds: Round[]): string | undefined {
   if (user.total > 0 && user.passed === user.total && agent.passed < agent.total)
     parts.push('완료 기준은 모두 충족했고 에이전트가 제안한 게이트만 남았습니다')
   return parts.join(' · ') || undefined
+}
+
+/**
+ * 버려진 제안 게이트를 승인 화면에 띄울 경고로 바꾼다.
+ *
+ * `advisory`인 이유: 제안이 밀렸다는 사실이 실행을 막을 근거는 아니다. 사용자 게이트가
+ * 이기는 것은 설계대로다. 다만 `--yes`로 사람이 안 볼 때도 report.md에는 남아야 한다.
+ */
+export function droppedWarning(d: DroppedGate): GateWarning {
+  return {
+    gate: d.name,
+    cmd: d.cmd,
+    kind: 'advisory',
+    reason:
+      d.reason === 'rejected'
+        ? '제안 게이트를 받지 않는 설정이라 이 제안을 쓰지 않았습니다'
+        : `같은 이름의 사용자 게이트가 있어 이 제안을 쓰지 않았습니다 (실행된 명령: \`${d.keptCmd}\`)`,
+  }
 }
 
 export async function runLoop(opts: LoopOptions): Promise<LoopResult> {
@@ -133,7 +158,8 @@ export async function runLoop(opts: LoopOptions): Promise<LoopResult> {
     return { status: 'agent-error', attempts: 0, rounds: [], runtime, usage, detail: plan.errorReason }
   opts.store.writePlan(plan.finalText)
 
-  const suggested = opts.rejectSuggested ? [] : (extractGates(plan.finalText) ?? [])
+  // 거부하더라도 일단 뽑는다 — 무엇을 거부했는지 남기려면 그것부터 알아야 한다
+  const suggested = extractGates(plan.finalText) ?? []
   if (opts.rejectSuggested) opts.log('제안 게이트를 받지 않습니다 — 사용자 게이트만 씁니다')
   // 게이트 타임아웃은 출처를 가리지 않고 걸린다. 제안 게이트만 무제한이면
   // 완료 기준을 에이전트가 정하면서 시간 한도까지 정하는 셈이 된다
@@ -141,29 +167,31 @@ export async function runLoop(opts: LoopOptions): Promise<LoopResult> {
     opts.gateTimeoutMs === undefined ? gate : { ...gate, timeoutMs: opts.gateTimeoutMs }
   const stallLimit = opts.stallLimit ?? DEFAULT_STALL_LIMIT
   const verifyRepeat = opts.verifyRepeat ?? DEFAULT_VERIFY_REPEAT
-  const gates = [
-    ...opts.userGates,
-    ...suggested.filter(s => !opts.userGates.some(u => u.name === s.name)),
-  ].map(withTimeout)
-  if (gates.length === 0) return { status: 'no-gates', attempts: 0, rounds: [], runtime, usage }
+  const merged = mergeGates(opts.userGates, suggested, { reject: opts.rejectSuggested })
+  const dropped = merged.dropped
+  const gates = merged.gates.map(withTimeout)
+  if (gates.length === 0)
+    return { status: 'no-gates', attempts: 0, rounds: [], runtime, usage, dropped }
 
   // 게이트가 이 환경에서 실행 가능한지만 본다. 통과/불통과 판정은 하지 않는다.
   // 재확인을 켰다면 그것이 헛돌 위험도 함께 짚는다 — 승인 화면이 그 사실을 보는 자리다
   const warnings = [
     ...(await preflightGates(gates, { cwd: opts.cwd })),
     ...recheckWarnings(gates, verifyRepeat),
+    ...dropped.map(droppedWarning),
   ]
   for (const w of warnings) opts.log(`게이트 경고 [${w.gate}] ${w.reason}`)
 
   const decision = await opts.approve(plan.finalText, gates, warnings)
   if (decision.action === 'abort')
-    return { status: 'aborted', attempts: 0, rounds: [], runtime, usage, detail: decision.reason }
+    return { status: 'aborted', attempts: 0, rounds: [], runtime, usage, dropped, detail: decision.reason }
 
   opts.store.writeGoal({
     intent: opts.intent,
     gates,
     budget: opts.budget,
     runtime,
+    droppedGates: dropped.length > 0 ? dropped : undefined,
     loop: {
       stallLimit,
       verifyRepeat,
@@ -199,7 +227,7 @@ export async function runLoop(opts: LoopOptions): Promise<LoopResult> {
 
     if (!exec.ok)
       return {
-        status: 'agent-error', attempts: attempt, rounds, runtime, usage, detail: exec.errorReason,
+        status: 'agent-error', attempts: attempt, rounds, runtime, usage, dropped, detail: exec.errorReason,
       }
 
     // 게이트를 돌리기 직전의 상태를 한 번 찍어 그 라운드의 모든 증거에 결박한다.
@@ -227,6 +255,7 @@ export async function runLoop(opts: LoopOptions): Promise<LoopResult> {
         rounds,
         runtime,
         usage,
+        dropped,
         detail: broken.map(e => `[${e.gate}] ${e.cmd} → exit ${e.exitCode}`).join('; '),
       }
     if (evidence.every(e => e.outcome === 'pass')) {
@@ -247,12 +276,13 @@ export async function runLoop(opts: LoopOptions): Promise<LoopResult> {
             rounds,
             runtime,
             usage,
+            dropped,
             detail:
               `재확인에서 결과가 갈린 게이트: ${recheck.flaky.join(', ')}` +
               ' — 통과가 재현되지 않아 완료로 보지 않습니다',
           }
       }
-      return { status: 'success', attempts: attempt, rounds, runtime, usage }
+      return { status: 'success', attempts: attempt, rounds, runtime, usage, dropped }
     }
 
     // 같은 자리를 도는 중이면 남은 예산을 태우지 않는다. 예산은 진전을 사는 값이지
@@ -264,10 +294,19 @@ export async function runLoop(opts: LoopOptions): Promise<LoopResult> {
         rounds,
         runtime,
         usage,
+        dropped,
         detail: `${stallLimit}라운드 연속으로 변경분과 게이트 결과가 동일합니다 (diff ${revision.diffHash})`,
       }
 
     feedback = failureSummary(evidence, round.repeatOf !== undefined)
   }
-  return { status: 'budget-exhausted', attempts: opts.budget, rounds, runtime, usage, detail: userGateSummary(rounds) }
+  return {
+    status: 'budget-exhausted',
+    attempts: opts.budget,
+    rounds,
+    runtime,
+    usage,
+    dropped,
+    detail: userGateSummary(rounds),
+  }
 }

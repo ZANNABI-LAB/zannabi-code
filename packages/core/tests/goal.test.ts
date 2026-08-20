@@ -1,5 +1,5 @@
 import { test, expect } from 'bun:test'
-import { GoalSchema, GateSchema, extractGates } from '../src/goal'
+import { GoalSchema, GateSchema, extractGates, mergeGates } from '../src/goal'
 
 test('Goal 기본값: budget 3, gate timeoutMs 300000', () => {
   const goal = GoalSchema.parse({
@@ -55,4 +55,42 @@ test('마지막 블록이 게이트가 아니면 앞쪽 블록을 본다', () =>
     '```',
   ].join('\n')
   expect(extractGates(text)![0].name).toBe('real')
+})
+
+test('mergeGates: 이름이 겹치면 사용자 게이트가 이기고, 밀린 제안이 기록된다', () => {
+  const user = [{ name: 'build', cmd: './gradlew build', timeoutMs: 1000, source: 'user' as const }]
+  const suggested = [
+    { name: 'build', cmd: './gradlew cleanTest build', timeoutMs: 1000, source: 'suggested' as const },
+    { name: 'lint', cmd: 'bun lint', timeoutMs: 1000, source: 'suggested' as const },
+  ]
+  const { gates, dropped } = mergeGates(user, suggested)
+  expect(gates.map(g => g.cmd)).toEqual(['./gradlew build', 'bun lint'])
+  expect(dropped).toEqual([
+    {
+      name: 'build',
+      cmd: './gradlew cleanTest build',
+      reason: 'name-collision',
+      keptCmd: './gradlew build',
+    },
+  ])
+})
+
+test('mergeGates: 명령까지 같은 충돌은 잃은 것이 없으므로 보고하지 않는다', () => {
+  const g = { name: 'test', cmd: 'bun test', timeoutMs: 1000 }
+  const { gates, dropped } = mergeGates(
+    [{ ...g, source: 'user' as const }],
+    [{ ...g, source: 'suggested' as const }],
+  )
+  expect(gates).toHaveLength(1)
+  expect(dropped).toEqual([])
+})
+
+test('mergeGates: 거부 설정이면 제안 전부가 rejected로 남는다', () => {
+  const { gates, dropped } = mergeGates(
+    [{ name: 'u', cmd: 'true', timeoutMs: 1000, source: 'user' as const }],
+    [{ name: 'g', cmd: 'false', timeoutMs: 1000, source: 'suggested' as const }],
+    { reject: true },
+  )
+  expect(gates.map(g => g.name)).toEqual(['u'])
+  expect(dropped).toEqual([{ name: 'g', cmd: 'false', reason: 'rejected' }])
 })
