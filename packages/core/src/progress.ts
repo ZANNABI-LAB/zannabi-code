@@ -47,3 +47,19 @@ export function shouldStop(rounds: Round[], limit: number): boolean {
   const signature = roundSignature(tail[0].revision, tail[0].evidence)
   return tail.every(r => roundSignature(r.revision, r.evidence) === signature)
 }
+
+/**
+ * 정체 감지가 이 예산에서 아무것도 구할 수 없는 조합인지.
+ *
+ * 감지는 **연속 `limit` 라운드**가 같아야 발동하는데, 예산이 그 이하면 발동 시점이
+ * 마지막 라운드이거나 아예 오지 않는다. 즉 남길 예산이 없어 감지가 있으나 마나가 된다.
+ * 실측에서 걸렸다: 라운드 1·2의 diff 해시가 완전히 같았는데도(`stallLimit` 3, 예산 3)
+ * 감지가 발동하지 않고 예산 소진으로 끝났다.
+ *
+ * 조용히 예산을 늘리거나 한계를 낮추지 않는다 — 둘 다 사용자가 정한 실행 조건이고,
+ * 도구가 그것을 뒤에서 바꾸면 실행끼리 비교하는 이 프로젝트의 측정이 무너진다.
+ * 대신 조합이 죽어 있다는 사실을 말한다.
+ */
+export function stallDetectionDead(stallLimit: number, budget: number): boolean {
+  return stallLimit > 0 && stallLimit >= budget
+}

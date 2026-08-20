@@ -4,7 +4,7 @@ import { extractGates, mergeGates } from './goal'
 import { runGate, preflightGates, type GateWarning } from './gates'
 import { planPrompt, executePrompt, failureSummary } from './prompts'
 import { captureRevision } from './revision'
-import { roundSignature, repeatOf, shouldStop, DEFAULT_STALL_LIMIT } from './progress'
+import { roundSignature, repeatOf, shouldStop, stallDetectionDead, DEFAULT_STALL_LIMIT } from './progress'
 import { recheckGates, recheckWarnings, recheckSuspects, DEFAULT_VERIFY_REPEAT } from './recheck'
 import type { RunStore } from './store'
 
@@ -83,6 +83,11 @@ export interface LoopResult {
    * 결과에 실어야 report.md가 그것을 말할 수 있다.
    */
   dropped?: DroppedGate[]
+  /**
+   * 이 실행에서 정체 감지가 구조적으로 죽어 있었는지(`stallLimit >= budget`).
+   * 예산 소진으로 끝난 실행을 나중에 읽을 때, 감지가 안 걸린 것인지 못 걸린 것인지 갈린다.
+   */
+  stallDead?: boolean
 }
 
 /**
@@ -167,11 +172,21 @@ export async function runLoop(opts: LoopOptions): Promise<LoopResult> {
     opts.gateTimeoutMs === undefined ? gate : { ...gate, timeoutMs: opts.gateTimeoutMs }
   const stallLimit = opts.stallLimit ?? DEFAULT_STALL_LIMIT
   const verifyRepeat = opts.verifyRepeat ?? DEFAULT_VERIFY_REPEAT
+  // 감지가 이 조합에서 죽어 있으면 그 사실을 승인 전에 말한다. 사용자가 정한 조건을
+  // 뒤에서 바꾸지 않는 대신, 조건이 뜻대로 작동하지 않는다는 것은 알려야 한다
+  const stallDead = stallDetectionDead(stallLimit, opts.budget)
+  if (stallDead)
+    opts.log(
+      `정체 감지가 이 조합에서는 작동하지 않습니다 — stall-limit ${stallLimit} >= budget ${opts.budget}. ` +
+        `연속 ${stallLimit}라운드가 같아야 발동하는데 예산이 그 전에 끝납니다. ` +
+        '예산을 늘리거나 --stall-limit을 낮추세요',
+    )
+
   const merged = mergeGates(opts.userGates, suggested, { reject: opts.rejectSuggested })
   const dropped = merged.dropped
   const gates = merged.gates.map(withTimeout)
   if (gates.length === 0)
-    return { status: 'no-gates', attempts: 0, rounds: [], runtime, usage, dropped }
+    return { status: 'no-gates', attempts: 0, rounds: [], runtime, usage, dropped, stallDead }
 
   // 게이트가 이 환경에서 실행 가능한지만 본다. 통과/불통과 판정은 하지 않는다.
   // 재확인을 켰다면 그것이 헛돌 위험도 함께 짚는다 — 승인 화면이 그 사실을 보는 자리다
@@ -184,7 +199,7 @@ export async function runLoop(opts: LoopOptions): Promise<LoopResult> {
 
   const decision = await opts.approve(plan.finalText, gates, warnings)
   if (decision.action === 'abort')
-    return { status: 'aborted', attempts: 0, rounds: [], runtime, usage, dropped, detail: decision.reason }
+    return { status: 'aborted', attempts: 0, rounds: [], runtime, usage, dropped, stallDead, detail: decision.reason }
 
   opts.store.writeGoal({
     intent: opts.intent,
@@ -227,7 +242,7 @@ export async function runLoop(opts: LoopOptions): Promise<LoopResult> {
 
     if (!exec.ok)
       return {
-        status: 'agent-error', attempts: attempt, rounds, runtime, usage, dropped, detail: exec.errorReason,
+        status: 'agent-error', attempts: attempt, rounds, runtime, usage, dropped, stallDead, detail: exec.errorReason,
       }
 
     // 게이트를 돌리기 직전의 상태를 한 번 찍어 그 라운드의 모든 증거에 결박한다.
@@ -256,6 +271,7 @@ export async function runLoop(opts: LoopOptions): Promise<LoopResult> {
         runtime,
         usage,
         dropped,
+        stallDead,
         detail: broken.map(e => `[${e.gate}] ${e.cmd} → exit ${e.exitCode}`).join('; '),
       }
     if (evidence.every(e => e.outcome === 'pass')) {
@@ -288,12 +304,13 @@ export async function runLoop(opts: LoopOptions): Promise<LoopResult> {
             runtime,
             usage,
             dropped,
+            stallDead,
             detail:
               `통과가 재현되지 않은 게이트: ${recheck.unreproduced.join(', ')}` +
               ' — 첫 회는 통과했으나 다시 돌리자 같은 결과가 나오지 않아 완료로 보지 않습니다',
           }
       }
-      return { status: 'success', attempts: attempt, rounds, runtime, usage, dropped }
+      return { status: 'success', attempts: attempt, rounds, runtime, usage, dropped, stallDead }
     }
 
     // 같은 자리를 도는 중이면 남은 예산을 태우지 않는다. 예산은 진전을 사는 값이지
@@ -306,6 +323,7 @@ export async function runLoop(opts: LoopOptions): Promise<LoopResult> {
         runtime,
         usage,
         dropped,
+        stallDead,
         detail: `${stallLimit}라운드 연속으로 변경분과 게이트 결과가 동일합니다 (diff ${revision.diffHash})`,
       }
 
@@ -318,6 +336,7 @@ export async function runLoop(opts: LoopOptions): Promise<LoopResult> {
     runtime,
     usage,
     dropped,
+    stallDead,
     detail: userGateSummary(rounds),
   }
 }

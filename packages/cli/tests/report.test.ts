@@ -244,3 +244,11 @@ test('설정이 안 바뀌면 그 절은 나오지 않는다', () => {
   const report = buildReport({ status: 'success', attempts: 1, rounds: [round(1, 'aaa')] }, '작업')
   expect(report).not.toContain('.zannabi.json이 바뀌었다')
 })
+
+test('정체 감지가 죽은 조합이면 리포트 머리에 세운다', () => {
+  const report = buildReport(
+    { status: 'budget-exhausted', attempts: 3, rounds: [round(1, 'aaa')], stallDead: true },
+    '작업',
+  )
+  expect(report).toContain('정체 감지 꺼짐')
+})

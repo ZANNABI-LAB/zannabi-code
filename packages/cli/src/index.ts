@@ -263,6 +263,11 @@ async function main() {
       '[zannabi] 진전이 없어 예산을 남기고 중단했습니다. ' +
       '게이트가 실제로 달성 가능한지 보고, 필요하면 --stall-limit으로 조절하세요.',
     )
+  if (result.stallDead && result.status === 'budget-exhausted')
+    console.error(
+      '[zannabi] 정체 감지가 이 조합에서는 발동할 수 없었습니다(stall-limit >= budget). ' +
+      '라운드별 diff 해시가 같은데 예산까지 갔다면 감지가 안 걸린 게 아니라 못 걸린 것입니다.',
+    )
   if (configChange && (configChange.droppedGates.length > 0 || configChange.removed))
     console.error(
       '[zannabi] 실행 도중 설정 파일에서 게이트가 사라졌습니다 — 이번 판정은 시작 시 읽은 ' +

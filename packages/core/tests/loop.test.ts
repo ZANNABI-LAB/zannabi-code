@@ -483,3 +483,22 @@ test('재확인이 첫 회보다 극단적으로 짧으면 통과시키되 정�
   expect(suspects[0].recheckMs).toBeLessThan(suspects[0].firstMs * 0.4)
   expect(logs.some(m => m.includes('재확인 경고'))).toBe(true)
 }, 30_000) // 게이트가 실제로 5.2초를 쓰므로 기본 타임아웃(5s)으로는 모자란다
+
+test('정체 감지가 예산에 눌려 죽는 조합이면 승인 전에 말한다', async () => {
+  const logs: string[] = []
+  const adapter = new FakeAdapter([fakeResult(planText('true')), fakeResult('했음')])
+  // 실측에서 걸린 조합: 기본 stallLimit 3 · balanced 프리셋 예산 3
+  const result = await runLoop(options({ adapter, budget: 3, stallLimit: 3, log: m => logs.push(m) }))
+
+  expect(result.stallDead).toBe(true)
+  expect(logs.some(m => m.includes('정체 감지가 이 조합에서는 작동하지 않습니다'))).toBe(true)
+})
+
+test('예산이 한계보다 크면 그런 경고를 하지 않는다', async () => {
+  const logs: string[] = []
+  const adapter = new FakeAdapter([fakeResult(planText('true')), fakeResult('했음')])
+  const result = await runLoop(options({ adapter, budget: 4, stallLimit: 3, log: m => logs.push(m) }))
+
+  expect(result.stallDead).toBe(false)
+  expect(logs.some(m => m.includes('정체 감지'))).toBe(false)
+})

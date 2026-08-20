@@ -1,6 +1,6 @@
 import { test, expect } from 'bun:test'
 import type { Evidence, Revision, Round } from '../src/goal'
-import { roundSignature, repeatOf, shouldStop } from '../src/progress'
+import { roundSignature, repeatOf, shouldStop, stallDetectionDead } from '../src/progress'
 
 const rev = (diffHash: string | null, tracked = true): Revision => ({
   tracked,
@@ -61,4 +61,18 @@ test('리비전을 못 읽으면 감지를 끈다 — 게이트 결과만으로�
 
 test('한계 0이면 감지를 끈다', () => {
   expect(shouldStop([round(1, 'aaa'), round(2, 'aaa'), round(3, 'aaa')], 0)).toBe(false)
+})
+
+test('stall-limit이 예산 이상이면 감지가 죽은 조합이다 — 실측: 한계 3 · 예산 3', () => {
+  expect(stallDetectionDead(3, 3)).toBe(true)
+  expect(stallDetectionDead(3, 2)).toBe(true)
+})
+
+test('예산이 한계보다 크면 감지가 살아 있다 — 남길 예산이 있어야 감지에 값이 있다', () => {
+  expect(stallDetectionDead(3, 4)).toBe(false)
+  expect(stallDetectionDead(2, 3)).toBe(false)
+})
+
+test('감지를 끈 조합은 죽은 것이 아니다 — 끈 것과 안 되는 것은 다른 사실이다', () => {
+  expect(stallDetectionDead(0, 3)).toBe(false)
 })

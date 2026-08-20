@@ -55,6 +55,12 @@ export function buildReport(
   if (head) lines.push(`- **head**: \`${head}\``)
   // 실패 사유를 리포트에 싣는다 — transcript.jsonl을 파싱하지 않아도 원인이 보이게
   if (result.detail) lines.push(`- **detail**: ${result.detail}`)
+  // 예산 소진으로 끝난 실행을 나중에 읽을 때, 정체 감지가 안 걸린 것인지 못 걸린 것인지 갈린다
+  if (result.stallDead)
+    lines.push(
+      `- ⚠️ **정체 감지 꺼짐**: stall-limit이 예산 이상이라 이 실행에서는 발동할 수 없었다` +
+        ` — 라운드가 제자리였더라도 예산 소진으로 끝난다`,
+    )
 
   const last = result.rounds.at(-1)
   lines.push(``, `## Gates (최종 라운드)`, ``)
