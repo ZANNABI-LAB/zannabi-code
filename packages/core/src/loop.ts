@@ -5,7 +5,7 @@ import { runGate, preflightGates, type GateWarning } from './gates'
 import { planPrompt, executePrompt, failureSummary } from './prompts'
 import { captureRevision } from './revision'
 import { roundSignature, repeatOf, shouldStop, stallDetectionDead, DEFAULT_STALL_LIMIT } from './progress'
-import { recheckGates, recheckWarnings, recheckSuspects, DEFAULT_VERIFY_REPEAT } from './recheck'
+import { recheckGates, recheckSuspects, DEFAULT_VERIFY_REPEAT } from './recheck'
 import type { RunStore } from './store'
 
 export type ApprovalDecision = { action: 'approve' } | { action: 'abort'; reason?: string }
@@ -188,11 +188,9 @@ export async function runLoop(opts: LoopOptions): Promise<LoopResult> {
   if (gates.length === 0)
     return { status: 'no-gates', attempts: 0, rounds: [], runtime, usage, dropped, stallDead }
 
-  // 게이트가 이 환경에서 실행 가능한지만 본다. 통과/불통과 판정은 하지 않는다.
-  // 재확인을 켰다면 그것이 헛돌 위험도 함께 짚는다 — 승인 화면이 그 사실을 보는 자리다
+  // 게이트가 이 환경에서 실행 가능한지만 본다. 통과/불통과 판정은 하지 않는다
   const warnings = [
     ...(await preflightGates(gates, { cwd: opts.cwd })),
-    ...recheckWarnings(gates, verifyRepeat),
     ...dropped.map(droppedWarning),
   ]
   for (const w of warnings) opts.log(`게이트 경고 [${w.gate}] ${w.reason}`)
@@ -285,7 +283,8 @@ export async function runLoop(opts: LoopOptions): Promise<LoopResult> {
         round.recheck = recheck.evidence
         if (recheck.unreproduced.length > 0) round.unreproduced = recheck.unreproduced
         // 결과가 갈리지 않았더라도 재확인이 실제로 다시 돌았는지는 별개 질문이다.
-        // 사전 경고(recheckWarnings)가 명령어 이름으로 못 잡은 경우를 여기서 소요시간으로 잡는다
+        // 명령어 문자열을 보는 사전 휴리스틱은 실측에서 오탐만 냈다. 캐시로 스킵됐는지는
+        // 실제로 얼마나 걸렸는지로 판단한다
         const suspects = recheckSuspects(evidence, recheck.evidence)
         if (suspects.length > 0) {
           round.recheckSuspects = suspects

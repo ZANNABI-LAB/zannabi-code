@@ -275,17 +275,17 @@ test('E2E: --profile safe는 런타임을 낮추지 않고 재확인을 켠다',
 
 test('E2E: --yes는 조언성 경고로는 멈추지 않는다', async () => {
   const project = mkdtempSync(join(tmpdir(), 'zannabi-e2e-advisory-'))
-  // make는 존재하므로 실행 가능성 검사는 통과한다 — 남는 것은 재확인 조언 경고뿐이다.
-  // `make -v`는 어디서 돌려도 exit 0
+  // fake 계획은 `ok: true`를 제안한다. 같은 이름에 다른 명령을 사용자 게이트로 주면
+  // 제안이 밀리고 조언 경고가 뜬다 — 실행을 막을 일은 아니다
   const proc = Bun.spawn(
     ['bun', cliPath, 'run', '테스트 작업', '--cwd', project, '--yes',
-     '--gate', 'ver:make -v', '--verify-repeat', '2'],
+     '--gate', 'ok:printf done'],
     { env: { ...process.env, ZANNABI_ADAPTER: 'fake' }, stdin: 'ignore', stdout: 'pipe', stderr: 'pipe' },
   )
   const exitCode = await proc.exited
   const out = await new Response(proc.stdout).text()
 
-  expect(out).toContain('재확인이 헛돌 수 있습니다') // 경고는 보인다
+  expect(out).toContain('같은 이름의 사용자 게이트') // 경고는 보인다
   expect(exitCode).toBe(0) // 그래도 진행한다
   expect(out).toContain('success')
 })
