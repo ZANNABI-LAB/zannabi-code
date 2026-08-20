@@ -6,7 +6,7 @@
 
 [![license](https://img.shields.io/badge/license-Apache--2.0-blue)](LICENSE)
 [![runtime](https://img.shields.io/badge/runtime-Bun-black)](https://bun.sh)
-[![tests](https://img.shields.io/badge/tests-90%20passing-brightgreen)]()
+[![tests](https://img.shields.io/badge/tests-145%20passing-brightgreen)]()
 
 > **Shake the branch before you cross.** — 잔나비는 건너기 전에 가지를 흔들어본다
 
@@ -48,18 +48,37 @@ zannabi run "작업 설명" --cwd /path/to/project --gate "test:bun test" --budg
 | `--model <이름>` | 에이전트 모델 지정 |
 | `--plan-agent` · `--plan-model` | 계획 턴만 다른 런타임/모델로 |
 | `--exec-agent` · `--exec-model` | 실행 턴만 다른 런타임/모델로 |
+| `--profile <이름>` | 조합 프리셋 `cheap`\|`balanced`\|`safe` |
 | `--stall-limit <N>` | 진전 없는 라운드가 N번 연속이면 중단 (기본 3, `0`이면 끔) |
 | `--verify-repeat <N>` | 통과한 게이트를 총 N회 돌려 재현 확인 (기본 1 = 안 함) |
 | `--no-suggest` | 에이전트가 제안한 게이트를 받지 않는다 |
 | `--gate-timeout <ms>` | 모든 게이트의 타임아웃 (기본 300000) |
 | `--yes` | 승인 프롬프트를 건너뛴다 (배치 실행용) |
 
-기본값은 프로젝트 루트의 `.zannabi.json`에서 읽는다. **플래그가 설정 파일을 이긴다.**
+**프리셋.** `--profile`은 Phase 2의 8회 측정에서 나온 운용 방침을 그대로 담은 조합 묶음이다.
+
+| 프리셋 | 하는 일 | 근거 |
+|---|---|---|
+| `cheap` | 실행을 `claude:claude-haiku-4-5`로 · 예산 5 | 실행을 낮춰도 대체로 통과했고, 대가는 품질이 아니라 라운드 수였다 |
+| `balanced` | 실행을 `codex`로 · 예산 3 | 실측에서 가장 안정적이었다 (2/2 성공, attempts 1) |
+| `safe` | 런타임을 낮추지 않음 · 예산 3 · 통과 2회 재확인 | 여기서 안전은 모델 등급이 아니라 **검증 강도**의 문제다 |
+
+**프리셋은 실행 턴만 건드리고 계획 턴은 손대지 않는다.** 계획 모델을 낮춘 조는 실측에서
+0/2였으므로, "계획은 낮추지 마라"를 값을 지정하는 방식이 아니라 **건드리지 않는 방식**으로 지킨다.
+`--plan-*`을 따로 주지 않으면 사용자가 이미 고른 기본값이 그대로 쓰인다.
+
+자동 판정(작업 난이도를 보고 조합을 고르는 것)은 아직 없다. 그 판단 신호가 될 비용·라운드
+실적이 이제 막 쌓이기 시작했고, 없는 데이터로 규칙을 박는 것보다 프리셋이 정직하다.
+
+기본값은 프로젝트 루트의 `.zannabi.json`에서 읽는다.
+**우선순위는 플래그 > 설정 파일의 개별 항목 > 프리셋 > 기본값**이다 — 프리셋은 기본값 묶음을
+갈아끼우는 것이지 지정을 덮어쓰는 것이 아니라서, 조합을 고정한 채 한 항목만 바꿔 실험할 수 있다.
 
 ```json
 {
   "gates": [{ "name": "test", "cmd": "bun test" }],
   "budget": 3,
+  "profile": "balanced",
   "planModel": "claude-opus-5",
   "execAgent": "codex",
   "verifyRepeat": 2,
@@ -75,7 +94,7 @@ zannabi run "작업 설명" --cwd /path/to/project --gate "test:bun test" --budg
 **생성-검증 분리.** 계획과 실행에 다른 런타임을 쓸 수 있다.
 
 ```bash
-zannabi run "..." --plan-model claude-opus-5 --exec-model claude-haiku-4-5-20251001
+zannabi run "..." --plan-model claude-opus-5 --exec-model claude-haiku-4-5
 zannabi run "..." --plan-agent claude --exec-agent codex
 ```
 
@@ -87,6 +106,8 @@ zannabi run "..." --plan-agent claude --exec-agent codex
 **`--yes` 주의.** 설계상 사람의 승인은 유일한 개입 지점이다. 이를 건너뛰는 대신 러너가
 게이트의 실행 가능성을 먼저 확인하고, 실행할 수 없는 게이트가 있으면 거부한다.
 이 검사는 명령의 **존재**만 본다 — 작업 전 실패하는 게이트는 정상이므로 통과/불통과는 판정하지 않는다.
+경고에는 두 종류가 있고 `--yes`는 **실행 불가(⛔)만** 거부한다. 조언(⚠️)으로 배치 실행이 죽으면
+사용자는 조언을 읽는 대신 경고 자체를 끄는 쪽으로 가고, 그러면 정작 막아야 할 경고까지 함께 꺼진다.
 
 **진전 없는 루프 끊기.** 예산은 진전을 사는 값이지 같은 실패를 다시 확인하는 값이 아니다.
 러너는 라운드마다 워킹트리의 **변경분 해시**와 게이트 결과를 함께 보고, 둘 다 그대로인 라운드가
@@ -98,6 +119,17 @@ zannabi run "..." --plan-agent claude --exec-agent codex
 **재현되지 않는 통과는 증거가 아니다.** `--verify-repeat N`을 주면 모든 게이트가 통과한
 라운드에서 게이트를 N회까지 다시 돌려 재현을 확인하고, 한 번이라도 갈리면 `flaky-gate`로 끝난다.
 실패한 라운드는 재확인하지 않는다 — 어차피 다음 시도로 넘어가고, 비용도 성공 시 한 번으로 묶인다.
+기본값은 `1`(끔)이다.
+
+> ⚠️ **재확인은 게이트 명령이 매번 실제로 도는 경우에만 의미가 있다.** Gradle·Maven·Bazel처럼
+> 결과를 캐시하는 도구는 두 번째 실행을 `UP-TO-DATE`로 건너뛰고, 그러면 러너는 아무것도
+> 확인하지 못한 채 "재확인했다"고 말한다. 실전에서 정확히 이 일이 있었고, 게이트 명령에
+> `cleanTest`를 직접 넣어 해결했다. 러너는 그런 게이트를 승인 화면에서 짚어 주지만
+> **경고일 뿐 실행을 막지 않는다** — 게이트가 어떻게 도는지는 사용자가 더 잘 안다.
+>
+> 반복 횟수로 잡을 수 있는 것은 **상태 누적형**(두 번째부터 항상 실패)이다. 낮은 확률로 터지는
+> **경합형**은 2~3회 반복으로 거의 잡히지 않는다. 그 대가로 성공 경로가 느려진다는 점까지
+> 감안해서 켤 것.
 
 **사용자 게이트와 제안 게이트는 따로 집계된다.** 사람이 건 게이트는 완료의 정의고 에이전트가
 제안한 게이트는 자기 검사다. 둘을 한 통에 담으면 "완료 기준은 다 맞췄는데 자기가 건 불가능한
@@ -106,7 +138,7 @@ zannabi run "..." --plan-agent claude --exec-agent codex
 
 ## 증거 디렉토리
 
-`plan.md`(승인된 계획) · `goal.json`(intent/게이트/예산) · `transcript.jsonl`(에이전트 이벤트)
+`plan.md`(승인된 계획) · `goal.json`(intent/게이트/예산/루프 설정) · `transcript.jsonl`(에이전트 이벤트)
 · `evidence.json`(라운드별 게이트 결과) · `rounds/round-N.patch`(라운드별 변경분)
 · `diff.patch`(최종 변경분) · `report.md`(요약·실패 사유·런타임 조합)
 
@@ -139,7 +171,7 @@ core 변경분은 두 어댑터가 공유하는 프로세스 구동 배관을 �
 ## 개발
 
 ```bash
-bun test        # 90개
+bun test        # 145개
 bun run typecheck
 ```
 

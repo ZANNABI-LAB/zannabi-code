@@ -15,6 +15,8 @@ import { GateSchema } from './goal'
 export const CONFIG_FILENAME = '.zannabi.json'
 
 export const ConfigSchema = z.object({
+  /** 조합 프리셋 이름. 개별 필드가 이것을 이긴다 — 프리셋은 기본값 묶음이지 지정을 덮어쓰는 것이 아니다 */
+  profile: z.string().optional(),
   /** 항상 걸리는 게이트. 여기 적힌 것은 사용자 게이트로 취급한다 — 완료의 정의이기 때문이다 */
   gates: z.array(GateSchema.extend({ source: z.literal('user').default('user') })).optional(),
   budget: z.number().int().min(1).optional(),

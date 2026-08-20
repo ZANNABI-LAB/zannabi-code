@@ -7,9 +7,43 @@
  * 이 도구가 답해야 할 질문이 아니다. 비용이 성공 시 한 번으로 묶이는 것도 같은 이유다.
  */
 import type { Evidence, Gate } from './goal'
+import type { GateWarning } from './gates'
 
 /** 기본값 1 = 재확인 없음. 값을 올리는 것은 사용자의 명시적 선택이어야 한다(그만큼 느려진다) */
 export const DEFAULT_VERIFY_REPEAT = 1
+
+/**
+ * 결과를 캐시하거나 증분으로 건너뛰는 빌드 도구들.
+ *
+ * 재확인의 전제는 "같은 명령을 다시 돌리면 같은 일이 다시 일어난다"인데, 이 도구들에서는
+ * 그 전제가 성립하지 않는다 — 두 번째 실행이 UP-TO-DATE로 스킵되면 재확인은 아무것도
+ * 확인하지 못한 채 통과한다. 실전에서 정확히 이 일이 있었다(gradle).
+ */
+const CACHING_BUILD_TOOLS = /(^|\/|\s)(gradlew?|mvn|mvnw|bazel|buck2?|sbt|turbo|nx|make)(\s|$)/
+
+/** 캐시를 무르는 신호. 하나라도 있으면 사용자가 이미 알고 대비한 것으로 본다 */
+const CACHE_BUSTING = /(\bclean\w*|--rerun-tasks|--no-build-cache|--no-daemon|-B\b|--force)/i
+
+/**
+ * 재확인이 헛돌 위험을 짚는다. 실행을 막지는 않는다(advisory) — 게이트가 어떻게 도는지는
+ * 사용자가 우리보다 잘 알고, 여기서 확실히 말할 수 있는 것은 "그럴 수 있다"까지다.
+ *
+ * 이 경고가 없으면 러너는 아무것도 확인하지 못한 채 "재확인했다"고 말하게 된다.
+ * 검증 우선을 표방하는 도구에서 **거짓 안심은 검사를 안 하느니만 못하다.**
+ */
+export function recheckWarnings(gates: Gate[], repeat: number): GateWarning[] {
+  if (repeat <= 1) return []
+  return gates
+    .filter(g => CACHING_BUILD_TOOLS.test(g.cmd) && !CACHE_BUSTING.test(g.cmd))
+    .map(g => ({
+      gate: g.name,
+      cmd: g.cmd,
+      kind: 'advisory' as const,
+      reason:
+        '재확인이 헛돌 수 있습니다 — 이 빌드 도구는 변경이 없으면 작업을 건너뜁니다. ' +
+        '게이트 명령에 clean 단계를 포함해야 두 번째 실행이 실제로 다시 돕니다',
+    }))
+}
 
 export interface RecheckResult {
   /** 추가 실행에서 나온 증거. 원본을 덮어쓰지 않고 나란히 쌓인다 */

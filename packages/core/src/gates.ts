@@ -26,6 +26,14 @@ export interface GateWarning {
   gate: string
   cmd: string
   reason: string
+  /**
+   * `blocking`은 이 환경에서 게이트를 아예 실행할 수 없다는 뜻이고,
+   * `advisory`는 돌기는 하지만 사람이 알아야 할 것이 있다는 뜻이다.
+   *
+   * 둘을 나누는 이유: `--yes`는 사람이 안 보는 대신 기계가 최소한의 검사를 대신하는데,
+   * 조언까지 거부 사유로 삼으면 배치 실행이 조언 때문에 죽는다.
+   */
+  kind: 'blocking' | 'advisory'
 }
 
 /** `cd x && y` 같은 복합 명령에서 판정 가능한 첫 낱말만 뽑는다. 판정 불가면 null */
@@ -54,7 +62,12 @@ export async function preflightGates(gates: Gate[], opts: { cwd: string }): Prom
         stderr: 'ignore',
       })
       if ((await proc.exited) !== 0)
-        warnings.push({ gate: gate.name, cmd: gate.cmd, reason: `명령을 찾을 수 없습니다: ${word}` })
+        warnings.push({
+          gate: gate.name,
+          cmd: gate.cmd,
+          reason: `명령을 찾을 수 없습니다: ${word}`,
+          kind: 'blocking',
+        })
     } catch {
       // 점검 자체가 실패하면 경고하지 않는다 — 사전점검이 새 실패 경로가 되면 안 된다
     }

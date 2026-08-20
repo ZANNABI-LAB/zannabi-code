@@ -5,8 +5,9 @@ import { createInterface } from 'node:readline/promises'
 import { resolve } from 'node:path'
 import {
   RunStore, runLoop, FakeAdapter, fakeResult, GateSchema, loadConfig,
+  PROFILES, PROFILE_NAMES, isProfileName,
   DEFAULT_STALL_LIMIT, DEFAULT_VERIFY_REPEAT, DEFAULT_GATE_TIMEOUT_MS, CONFIG_FILENAME,
-  type Gate, type GateWarning, type AgentAdapter, type ApprovalDecision,
+  type Gate, type GateWarning, type AgentAdapter, type ApprovalDecision, type Profile,
 } from '@zannabi-lab/core'
 import { ClaudeAdapter } from '@zannabi-lab/adapter-claude'
 import { CodexAdapter } from '@zannabi-lab/adapter-codex'
@@ -49,7 +50,9 @@ function printPlan(plan: string, gates: Gate[], warnings: GateWarning[]) {
   for (const g of gates) console.log(`  - ${g.name}: ${g.cmd}`)
   if (warnings.length > 0) {
     console.log('\n===== 경고 =====\n')
-    for (const w of warnings) console.log(`  ⚠️  ${w.gate}: ${w.reason}`)
+    // 실행을 막는 경고와 조언을 눈으로도 구별되게 한다 — 사람이 승인 여부를 가르는 기준이 다르다
+    for (const w of warnings)
+      console.log(`  ${w.kind === 'blocking' ? '⛔' : '⚠️ '} ${w.gate}: ${w.reason}`)
   }
 }
 
@@ -64,17 +67,21 @@ async function approveViaTerminal(
 }
 
 /**
- * --yes: 사람 승인을 건너뛴다. 대신 게이트 경고가 하나라도 있으면 거부한다 —
+ * --yes: 사람 승인을 건너뛴다. 대신 **실행 불가한** 게이트가 있으면 거부한다 —
  * 사람이 안 보는 만큼 기계가 최소한의 검사를 대신한다.
+ *
+ * 조언성 경고로는 거부하지 않는다. 배치 실행이 조언 때문에 죽으면 사용자는 조언을 읽는 대신
+ * 경고 자체를 끄는 쪽으로 가고, 그러면 정작 막아야 할 경고까지 함께 꺼진다.
  */
 async function approveAutomatically(
   plan: string, gates: Gate[], warnings: GateWarning[],
 ): Promise<ApprovalDecision> {
   printPlan(plan, gates, warnings)
-  if (warnings.length > 0)
+  const blocking = warnings.filter(w => w.kind === 'blocking')
+  if (blocking.length > 0)
     return {
       action: 'abort',
-      reason: `--yes 모드에서 실행 불가한 게이트를 거부했습니다: ${warnings
+      reason: `--yes 모드에서 실행 불가한 게이트를 거부했습니다: ${blocking
         .map(w => `[${w.gate}] ${w.reason}`)
         .join('; ')}`,
     }
@@ -99,6 +106,7 @@ async function main() {
       'verify-repeat': { type: 'string' },
       'gate-timeout': { type: 'string' },
       'no-suggest': { type: 'boolean' },
+      profile: { type: 'string' },
       yes: { type: 'boolean', default: false },
     },
   })
@@ -112,7 +120,9 @@ async function main() {
       ` [--verify-repeat N] (통과 재확인 횟수, 기본 ${DEFAULT_VERIFY_REPEAT})\n` +
       '  게이트 고정: [--no-suggest] (제안 게이트 거부)' +
       ` [--gate-timeout <ms>] (기본 ${DEFAULT_GATE_TIMEOUT_MS})\n` +
-      `  기본값은 프로젝트의 ${CONFIG_FILENAME}에서 읽는다 (플래그가 우선)`,
+      `  조합 프리셋: [--profile ${PROFILE_NAMES.join('|')}]\n` +
+      PROFILE_NAMES.map(n => `    ${n.padEnd(9)} ${PROFILES[n].summary}`).join('\n') + '\n' +
+      `  우선순위: 플래그 > ${CONFIG_FILENAME}의 개별 항목 > 프리셋 > 기본값`,
     )
     process.exit(1)
   }
@@ -126,6 +136,16 @@ async function main() {
   }
   const config = loaded.config
   if (loaded.path) console.log(`[zannabi] 설정 사용: ${loaded.path}`)
+
+  // 프리셋은 "기본값 묶음"이다 — 개별 지정을 덮어쓰지 않고 그 아래 층에 깔린다.
+  // 그래야 프리셋으로 조합을 고정하면서 한 항목만 바꿔 실험하는 일이 가능하다
+  const profileName = values.profile ?? config.profile
+  if (profileName !== undefined && !isProfileName(profileName)) {
+    console.error(`[zannabi] --profile은 ${PROFILE_NAMES.join(' | ')} 중 하나여야 합니다: ${profileName}`)
+    process.exit(1)
+  }
+  const profile: Partial<Profile> = profileName ? PROFILES[profileName] : {}
+  if (profileName) console.log(`[zannabi] 프리셋 ${profileName}: ${profile.summary}`)
 
   // 사용자가 실제로 쓴 플래그를 짚어야 고칠 자리를 안다
   for (const flag of ['agent', 'plan-agent', 'exec-agent'] as const) {
@@ -142,16 +162,18 @@ async function main() {
     process.exit(1)
   }
 
-  // 우선순위: 플래그 > 설정 파일 > 기본값
+  // 우선순위: 플래그 > 설정 파일 > 프리셋 > 기본값
   const agent = (values.agent ?? config.agent ?? 'claude') as AgentName
   const model = values.model ?? config.model
+  // 계획 턴에는 프리셋이 개입하지 않는다 — 실측이 "계획은 낮추지 마라"였으므로
+  // 값을 지정하는 대신 건드리지 않는 방식으로 그 방침을 지킨다
   const plan: RuntimeChoice = {
     agent: (values['plan-agent'] ?? config.planAgent ?? agent) as AgentName,
     model: values['plan-model'] ?? config.planModel ?? model,
   }
   const exec: RuntimeChoice = {
-    agent: (values['exec-agent'] ?? config.execAgent ?? agent) as AgentName,
-    model: values['exec-model'] ?? config.execModel ?? model,
+    agent: (values['exec-agent'] ?? config.execAgent ?? profile.execAgent ?? agent) as AgentName,
+    model: values['exec-model'] ?? config.execModel ?? profile.execModel ?? model,
   }
 
   /** 숫자 플래그 하나를 검증해 꺼낸다. 잘못된 값은 기본값으로 조용히 흘리지 않고 세운다 */
@@ -165,9 +187,14 @@ async function main() {
     return value
   }
 
-  const budget = number('budget', values.budget, config.budget ?? 3, 1)
+  const budget = number('budget', values.budget, config.budget ?? profile.budget ?? 3, 1)
   const stallLimit = number('stall-limit', values['stall-limit'], config.stallLimit ?? DEFAULT_STALL_LIMIT, 0)
-  const verifyRepeat = number('verify-repeat', values['verify-repeat'], config.verifyRepeat ?? DEFAULT_VERIFY_REPEAT, 1)
+  const verifyRepeat = number(
+    'verify-repeat',
+    values['verify-repeat'],
+    config.verifyRepeat ?? profile.verifyRepeat ?? DEFAULT_VERIFY_REPEAT,
+    1,
+  )
   const gateTimeoutMs = number('gate-timeout', values['gate-timeout'], config.gateTimeoutMs ?? DEFAULT_GATE_TIMEOUT_MS, 1)
   const rejectSuggested = values['no-suggest'] ?? config.rejectSuggested ?? false
 
@@ -199,6 +226,7 @@ async function main() {
     verifyRepeat,
     gateTimeoutMs,
     rejectSuggested,
+    profile: profileName,
     store,
     approve: values.yes ? approveAutomatically : approveViaTerminal,
     log: message => console.log(`[zannabi] ${message}`),

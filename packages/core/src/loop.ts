@@ -5,7 +5,7 @@ import { runGate, preflightGates, type GateWarning } from './gates'
 import { planPrompt, executePrompt, failureSummary } from './prompts'
 import { captureRevision } from './revision'
 import { roundSignature, repeatOf, shouldStop, DEFAULT_STALL_LIMIT } from './progress'
-import { recheckGates, DEFAULT_VERIFY_REPEAT } from './flaky'
+import { recheckGates, recheckWarnings, DEFAULT_VERIFY_REPEAT } from './flaky'
 import type { RunStore } from './store'
 
 export type ApprovalDecision = { action: 'approve' } | { action: 'abort'; reason?: string }
@@ -45,6 +45,11 @@ export interface LoopOptions {
   rejectSuggested?: boolean
   /** 모든 게이트의 타임아웃을 이 값으로 덮어쓴다 — 제안 게이트에도 걸린다 */
   gateTimeoutMs?: number
+  /**
+   * 이 실행에 적용된 프리셋 이름. 루프 동작에는 영향이 없고 증거에만 남는다 —
+   * 조합별 실적을 모을 때 실행들을 묶는 키다.
+   */
+  profile?: string
 }
 
 export interface RuntimeLabels {
@@ -142,8 +147,12 @@ export async function runLoop(opts: LoopOptions): Promise<LoopResult> {
   ].map(withTimeout)
   if (gates.length === 0) return { status: 'no-gates', attempts: 0, rounds: [], runtime, usage }
 
-  // 게이트가 이 환경에서 실행 가능한지만 본다. 통과/불통과 판정은 하지 않는다
-  const warnings = await preflightGates(gates, { cwd: opts.cwd })
+  // 게이트가 이 환경에서 실행 가능한지만 본다. 통과/불통과 판정은 하지 않는다.
+  // 재확인을 켰다면 그것이 헛돌 위험도 함께 짚는다 — 승인 화면이 그 사실을 보는 자리다
+  const warnings = [
+    ...(await preflightGates(gates, { cwd: opts.cwd })),
+    ...recheckWarnings(gates, verifyRepeat),
+  ]
   for (const w of warnings) opts.log(`게이트 경고 [${w.gate}] ${w.reason}`)
 
   const decision = await opts.approve(plan.finalText, gates, warnings)
@@ -155,7 +164,12 @@ export async function runLoop(opts: LoopOptions): Promise<LoopResult> {
     gates,
     budget: opts.budget,
     runtime,
-    loop: { stallLimit, verifyRepeat, rejectSuggested: opts.rejectSuggested ?? false },
+    loop: {
+      stallLimit,
+      verifyRepeat,
+      rejectSuggested: opts.rejectSuggested ?? false,
+      profile: opts.profile,
+    },
   })
 
   // 2~4. EXECUTE → VERIFY → 실패 증거와 함께 재시도

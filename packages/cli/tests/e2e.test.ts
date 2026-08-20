@@ -1,5 +1,5 @@
 import { test, expect } from 'bun:test'
-import { mkdtempSync, existsSync, readdirSync, writeFileSync } from 'node:fs'
+import { mkdtempSync, existsSync, readdirSync, writeFileSync, readFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
@@ -195,4 +195,111 @@ test('E2E: 플래그가 설정 파일을 이긴다', async () => {
   const out = await new Response(proc.stdout).text()
 
   expect(out).toContain('plan=`claude:from-flag`')
+})
+
+test('E2E: --profile cheap은 실행 턴만 낮추고 계획 턴은 건드리지 않는다', async () => {
+  const project = mkdtempSync(join(tmpdir(), 'zannabi-e2e-profile-'))
+  const proc = Bun.spawn(
+    ['bun', cliPath, 'run', '테스트 작업', '--cwd', project, '--yes', '--profile', 'cheap'],
+    { env: { ...process.env, ZANNABI_ADAPTER: 'fake' }, stdin: 'ignore', stdout: 'pipe', stderr: 'pipe' },
+  )
+  await proc.exited
+  const out = await new Response(proc.stdout).text()
+
+  expect(out).toContain('프리셋 cheap')
+  expect(out).toContain('exec=`claude:claude-haiku-4-5`')
+  expect(out).toContain('plan=`claude:default`') // 계획은 사용자 기본값 그대로
+})
+
+test('E2E: 개별 플래그가 프리셋을 이긴다', async () => {
+  const project = mkdtempSync(join(tmpdir(), 'zannabi-e2e-profile-override-'))
+  const proc = Bun.spawn(
+    ['bun', cliPath, 'run', '테스트 작업', '--cwd', project, '--yes',
+     '--profile', 'cheap', '--exec-agent', 'codex'],
+    { env: { ...process.env, ZANNABI_ADAPTER: 'fake' }, stdin: 'ignore', stdout: 'pipe', stderr: 'pipe' },
+  )
+  await proc.exited
+  const out = await new Response(proc.stdout).text()
+
+  // 프리셋은 기본값 묶음이므로 명시한 항목만 갈아끼워진다 — 모델은 프리셋 값이 남는다
+  expect(out).toContain('exec=`codex:claude-haiku-4-5`')
+})
+
+test('E2E: 설정 파일의 개별 항목이 프리셋을 이긴다', async () => {
+  const project = mkdtempSync(join(tmpdir(), 'zannabi-e2e-profile-config-'))
+  writeFileSync(
+    join(project, '.zannabi.json'),
+    JSON.stringify({ profile: 'cheap', execModel: 'from-config' }),
+  )
+  const proc = Bun.spawn(['bun', cliPath, 'run', '테스트 작업', '--cwd', project, '--yes'], {
+    env: { ...process.env, ZANNABI_ADAPTER: 'fake' },
+    stdin: 'ignore', stdout: 'pipe', stderr: 'pipe',
+  })
+  await proc.exited
+  const out = await new Response(proc.stdout).text()
+
+  expect(out).toContain('프리셋 cheap') // 설정 파일로도 프리셋을 걸 수 있다
+  expect(out).toContain('exec=`claude:from-config`')
+})
+
+test('E2E: 모르는 프리셋 이름은 고를 수 있는 것을 알려준다', async () => {
+  const project = mkdtempSync(join(tmpdir(), 'zannabi-e2e-profile-bad-'))
+  const proc = Bun.spawn(
+    ['bun', cliPath, 'run', '테스트 작업', '--cwd', project, '--yes', '--profile', 'turbo'],
+    { env: { ...process.env, ZANNABI_ADAPTER: 'fake' }, stdin: 'ignore', stdout: 'pipe', stderr: 'pipe' },
+  )
+  const exitCode = await proc.exited
+  const out = (await new Response(proc.stdout).text()) + (await new Response(proc.stderr).text())
+
+  expect(exitCode).toBe(1)
+  expect(out).toContain('cheap | balanced | safe')
+})
+
+test('E2E: --profile safe는 런타임을 낮추지 않고 재확인을 켠다', async () => {
+  const project = mkdtempSync(join(tmpdir(), 'zannabi-e2e-profile-safe-'))
+  const proc = Bun.spawn(
+    ['bun', cliPath, 'run', '테스트 작업', '--cwd', project, '--yes', '--profile', 'safe'],
+    { env: { ...process.env, ZANNABI_ADAPTER: 'fake' }, stdin: 'ignore', stdout: 'pipe', stderr: 'pipe' },
+  )
+  await proc.exited
+  const out = await new Response(proc.stdout).text()
+
+  expect(out).toContain('plan=`claude:default` exec=`claude:default`')
+  expect(out).toContain('통과 재확인 중 (총 2회)')
+  const runs = readdirSync(join(project, '.zannabi', 'runs'))
+  const goal = JSON.parse(
+    readFileSync(join(project, '.zannabi', 'runs', runs[0], 'goal.json'), 'utf-8'),
+  )
+  expect(goal.loop.profile).toBe('safe') // 어떤 프리셋으로 돌았는지가 증거에 남는다
+})
+
+test('E2E: --yes는 조언성 경고로는 멈추지 않는다', async () => {
+  const project = mkdtempSync(join(tmpdir(), 'zannabi-e2e-advisory-'))
+  // make는 존재하므로 실행 가능성 검사는 통과한다 — 남는 것은 재확인 조언 경고뿐이다.
+  // `make -v`는 어디서 돌려도 exit 0
+  const proc = Bun.spawn(
+    ['bun', cliPath, 'run', '테스트 작업', '--cwd', project, '--yes',
+     '--gate', 'ver:make -v', '--verify-repeat', '2'],
+    { env: { ...process.env, ZANNABI_ADAPTER: 'fake' }, stdin: 'ignore', stdout: 'pipe', stderr: 'pipe' },
+  )
+  const exitCode = await proc.exited
+  const out = await new Response(proc.stdout).text()
+
+  expect(out).toContain('재확인이 헛돌 수 있습니다') // 경고는 보인다
+  expect(exitCode).toBe(0) // 그래도 진행한다
+  expect(out).toContain('success')
+})
+
+test('E2E: --yes는 실행 불가한 게이트에는 여전히 멈춘다', async () => {
+  const project = mkdtempSync(join(tmpdir(), 'zannabi-e2e-blocking-'))
+  const proc = Bun.spawn(
+    ['bun', cliPath, 'run', '테스트 작업', '--cwd', project, '--yes',
+     '--gate', 'broken:definitely-not-a-command-xyz', '--verify-repeat', '2'],
+    { env: { ...process.env, ZANNABI_ADAPTER: 'fake' }, stdin: 'ignore', stdout: 'pipe', stderr: 'pipe' },
+  )
+  const exitCode = await proc.exited
+  const out = (await new Response(proc.stdout).text()) + (await new Response(proc.stderr).text())
+
+  expect(exitCode).toBe(1)
+  expect(out).toContain('aborted')
 })

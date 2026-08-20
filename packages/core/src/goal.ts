@@ -38,6 +38,8 @@ export const GoalSchema = z.object({
       stallLimit: z.number().int().min(0),
       verifyRepeat: z.number().int().min(1),
       rejectSuggested: z.boolean(),
+      /** 어떤 프리셋으로 돌았는지. 조합별 실적을 모을 때의 묶음 키가 된다 */
+      profile: z.string().optional(),
     })
     .optional(),
 })
