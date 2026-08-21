@@ -44,6 +44,19 @@ export const CapabilitiesSchema = z.object({
   isolation: SupportSchema,
   /** 같은 작업을 여러 조합으로 돌려 고르는가 */
   bestOfN: SupportSchema,
+  /**
+   * **실행 턴의 에이전트가 셸 명령을 돌릴 수 있는가.**
+   *
+   * 이것을 신고하지 않으면 지시서를 쓰는 사람이 되지 않을 것을 지시한다 — 실측에서
+   * "1단계를 넣고 게이트를 돌려 초록이면 2단계로 가라"는 순서 제약이 계획에는 그대로
+   * 실렸는데 실행 턴이 그것을 할 수 없었고, 그 사실은 실행이 끝난 뒤 transcript의
+   * 권한 거부 7건으로만 드러났다. 단계별 귀속을 사람이 지시서로 만들 수 없다는 뜻이다.
+   *
+   * 값이 `none`이면 **에이전트는 검증 없이 한 라운드를 써야 한다.** 라운드가 유일한
+   * 피드백 루프이므로 오타 하나가 라운드 하나 값이다. 지시를 짜는 쪽이 그 전제를
+   * 알고 짜는 것과 모르고 짜는 것은 다르다.
+   */
+  execShell: SupportSchema,
 })
 export type Capabilities = z.infer<typeof CapabilitiesSchema>
 
@@ -118,13 +131,23 @@ export function manifest(version: string): Manifest {
       cost: 'partial',
       liveJournal: 'full',
       /**
-       * `partial`인 이유: 워크트리로 돌던 실행을 재개하면 격리가 이어지지 않는다
-       * (워크트리는 실행이 끝날 때 치워지고, 브랜치만 남는다).
+       * `partial`인 이유: **워크트리로 돌던 실행은 재개할 수 없다.**
+       * 브랜치 이름이 `zannabi/<runId>`로 결정되는데 워크트리를 치워도 브랜치는 남으므로,
+       * 재개가 같은 이름을 다시 만들려다 실패한다. `--worktree` 없이 재개하면 뜨기는 하지만
+       * 원본 저장소에서 돌아 라운드 N까지의 작업이 없는 상태에서 이어간다.
        * 격리 없이 돌린 실행의 재개는 온전하다.
        */
       resume: 'partial',
       isolation: 'full',
       bestOfN: 'full',
+      /**
+       * `partial`인 이유: **실행 런타임에 따라 정반대다.**
+       * claude는 `--permission-mode acceptEdits`로 띄우므로 편집은 되고 셸은 승인 대기로
+       * 떨어지는데, 비대화형이라 승인이 오지 않는다 — 실질 `none`이다.
+       * codex는 `--sandbox workspace-write`로 띄우므로 샌드박스 안에서 명령이 돈다.
+       * 비용(claude는 주고 codex는 안 준다)과 같은 모양이고 방향만 반대다.
+       */
+      execShell: 'partial',
     },
     evidenceLayout: {
       runsDir: RUNS_DIR,
