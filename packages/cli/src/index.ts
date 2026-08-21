@@ -1,6 +1,8 @@
 #!/usr/bin/env bun
 // packages/cli/src/index.ts
 import { parseArgs } from 'node:util'
+import { readFileSync, existsSync } from 'node:fs'
+import { join } from 'node:path'
 import { createInterface } from 'node:readline/promises'
 import { resolve } from 'node:path'
 import {
@@ -8,8 +10,11 @@ import {
   configFingerprint, compareConfig,
   PROFILES, PROFILE_NAMES, isProfileName,
   DEFAULT_STALL_LIMIT, DEFAULT_VERIFY_REPEAT, DEFAULT_GATE_TIMEOUT_MS, CONFIG_FILENAME,
+  listRuns, resolveRun, readJournal, replay, RUNS_DIR, resumability, toRounds,
+  type ResumeState,
   type Gate, type GateWarning, type AgentAdapter, type ApprovalDecision, type Profile,
 } from '@zannabi-lab/core'
+import { renderStatus, renderRunLine } from './status'
 import { ClaudeAdapter } from '@zannabi-lab/adapter-claude'
 import { CodexAdapter } from '@zannabi-lab/adapter-codex'
 
@@ -90,6 +95,40 @@ async function approveAutomatically(
   return { action: 'approve' }
 }
 
+/**
+ * 저널만 읽어 상태를 말한다. `report.md`도 `evidence.json`도 읽지 않는 것이 요점이다 —
+ * 저널 하나에서 나오지 않는 정보는 여기 뜰 수 없고, 안 뜨면 계약이 부족한 것이다.
+ */
+async function status(cwd: string, name?: string) {
+  if (name === undefined) {
+    const runs = listRuns(cwd)
+    if (runs.length === 0) {
+      console.error(`[zannabi] ${RUNS_DIR} 에 실행 기록이 없습니다`)
+      process.exit(1)
+    }
+    for (const runId of runs.slice(0, 20))
+      console.log(renderRunLine(runId, replay(readJournal(`${cwd}/${RUNS_DIR}/${runId}`))))
+    if (runs.length > 20) console.log(`... 외 ${runs.length - 20}건`)
+    return
+  }
+
+  const found = resolveRun(cwd, name)
+  if (!found.ok) {
+    console.error(`[zannabi] ${found.reason}`)
+    // 후보를 함께 보여준다 — 이름을 못 맞춘 사용자에게 "없습니다"만 주면 다음 수가 없다
+    for (const c of found.candidates ?? []) console.error(`  ${c}`)
+    process.exit(1)
+  }
+  const events = readJournal(found.dir)
+  if (events.length === 0) {
+    console.error(
+      `[zannabi] ${found.runId} 에 저널이 없습니다 — 저널을 쓰기 전 판으로 돌린 실행이거나 지워졌습니다`,
+    )
+    process.exit(1)
+  }
+  console.log(renderStatus(replay(events)))
+}
+
 async function main() {
   const { positionals, values } = parseArgs({
     allowPositionals: true,
@@ -113,7 +152,12 @@ async function main() {
     },
   })
   const [command, intent] = positionals
-  if (command !== 'run' || !intent) {
+
+  // status는 저널만 읽는다 — 설정도 어댑터도 필요 없으므로 run의 준비 과정 앞에서 갈린다
+  if (command === 'status') return status(resolve(values.cwd), intent)
+
+  // resume은 이름을 생략할 수 있다 — 대개 방금 죽은 그 실행을 이어가려는 것이다
+  if ((command !== 'run' && command !== 'resume') || (command === 'run' && !intent)) {
     console.error(
       '사용법: zannabi run "<작업 설명>" [--cwd .] [--budget 3] [--gate "name:cmd"]' +
       ` [--agent ${AGENTS.join('|')}] [--model <이름>] [--yes]\n` +
@@ -125,7 +169,11 @@ async function main() {
       ` [--gate-timeout <ms>] (기본 ${DEFAULT_GATE_TIMEOUT_MS})\n` +
       `  조합 프리셋: [--profile ${PROFILE_NAMES.join('|')}]\n` +
       PROFILE_NAMES.map(n => `    ${n.padEnd(9)} ${PROFILES[n].summary}`).join('\n') + '\n' +
-      `  우선순위: 플래그 > ${CONFIG_FILENAME}의 개별 항목 > 프리셋 > 기본값`,
+      `  우선순위: 플래그 > ${CONFIG_FILENAME}의 개별 항목 > 프리셋 > 기본값\n` +
+      '\n이어서 돌기: zannabi resume [<실행 이름 일부>] [--cwd .] [--budget N]\n' +
+      '  중단된 지점의 다음 라운드부터 갑니다 — 계획과 승인은 다시 묻지 않습니다\n' +
+      '\n상태 보기: zannabi status [<실행 이름 일부>] [--cwd .]\n' +
+      '  저널(journal.jsonl)만 읽어 재구성합니다 — 실행 중에도, 러너가 죽은 뒤에도 볼 수 있습니다',
     )
     process.exit(1)
   }
@@ -232,13 +280,70 @@ async function main() {
   // 작업하는 에이전트가 쓸 수 있다. 실제로 게이트를 지운 실행이 있었다
   const configBefore = { fingerprint: configFingerprint(cwd), config }
 
-  const store = new RunStore(cwd, intent)
+  /**
+   * 재개면 저널에서 이어받을 것을 꺼낸다.
+   *
+   * 계획 본문만 `plan.md`에서 온다 — 저널에 계획 전문을 싣지 않기로 한 대가다.
+   * 상태 재구성(`status`)은 저널 하나로 되고, 재개는 실행 디렉토리 전체를 쓴다.
+   */
+  let store: RunStore
+  let runIntent = intent ?? ''
+  let effectiveBudget = budget
+  let resume: ResumeState | undefined
+
+  if (command === 'resume') {
+    const found = resolveRun(cwd, intent)
+    if (!found.ok) {
+      console.error(`[zannabi] ${found.reason}`)
+      for (const c of found.candidates ?? []) console.error(`  ${c}`)
+      process.exit(1)
+    }
+    const state = replay(readJournal(found.dir))
+    // 예산을 늘려 이어가는 것은 허용한다 — 남은 것이 없어 멈춘 실행에 대고
+    // "예산을 다 썼다"만 말하면 사용자에게 다음 수가 없다
+    if (values.budget) effectiveBudget = budget
+    else if (state.budget !== undefined) effectiveBudget = state.budget
+    const can = resumability({ ...state, budget: effectiveBudget })
+    if (!can.ok) {
+      console.error(`[zannabi] ${found.runId} 을(를) 이어서 돌 수 없습니다 — ${can.reason}`)
+      process.exit(1)
+    }
+    const planPath = join(found.dir, 'plan.md')
+    if (!existsSync(planPath)) {
+      console.error(
+        `[zannabi] ${found.runId} 에 plan.md가 없습니다 — 승인된 계획 없이는 이어갈 수 없습니다`,
+      )
+      process.exit(1)
+    }
+    runIntent = state.intent ?? ''
+    store = RunStore.open(cwd, found.runId)
+    resume = {
+      planText: readFileSync(planPath, 'utf-8'),
+      gates: state.gates,
+      rounds: toRounds(state.rounds),
+      startRound: can.nextRound,
+      usage: state.usage,
+      ...(state.sessionId === undefined ? {} : { sessionId: state.sessionId }),
+    }
+    console.log(
+      `[zannabi] 재개: ${found.runId} · 완료된 라운드 ${state.rounds.length}개 · ` +
+        `라운드 ${can.nextRound}부터 · 예산 ${effectiveBudget}` +
+        (state.spentUsd === undefined ? '' : ` · 이월 지출 $${state.spentUsd.toFixed(4)}`),
+    )
+    if (state.partialRound !== undefined)
+      console.log(
+        `[zannabi] 라운드 ${state.partialRound}은 검증이 끝나지 않아 완료로 세지 않습니다 — 처음부터 다시 돕니다`,
+      )
+  } else {
+    store = new RunStore(cwd, runIntent)
+  }
+
   const { buildReport, captureDiff } = await import('./report')
 
   const result = await runLoop({
-    intent,
+    intent: runIntent,
     userGates,
-    budget,
+    budget: effectiveBudget,
     maxCostUsd,
     cwd,
     adapter: pickAdapter(plan),
@@ -251,6 +356,7 @@ async function main() {
     rejectSuggested,
     profile: profileName,
     store,
+    ...(resume === undefined ? {} : { resume }),
     approve: values.yes ? approveAutomatically : approveViaTerminal,
     log: message => console.log(`[zannabi] ${message}`),
   })

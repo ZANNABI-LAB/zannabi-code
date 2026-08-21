@@ -6,7 +6,7 @@
 
 [![license](https://img.shields.io/badge/license-Apache--2.0-blue)](LICENSE)
 [![runtime](https://img.shields.io/badge/runtime-Bun-black)](https://bun.sh)
-![tests](https://img.shields.io/badge/tests-202%20passing-brightgreen)
+![tests](https://img.shields.io/badge/tests-231%20passing-brightgreen)
 
 > **Shake the branch before you cross.** — 잔나비는 건너기 전에 가지를 흔들어본다
 
@@ -55,6 +55,9 @@ zannabi run "작업 설명" --cwd /path/to/project --gate "test:bun test" --budg
 | `--no-suggest` | 에이전트가 제안한 게이트를 받지 않는다 |
 | `--gate-timeout <ms>` | 모든 게이트의 타임아웃 (기본 300000) |
 | `--yes` | 승인 프롬프트를 건너뛴다 (배치 실행용) |
+
+**다른 명령 둘.** `zannabi status [<이름 일부>]`는 지금 무슨 일이 벌어지는지 말하고,
+`zannabi resume [<이름 일부>]`는 중단된 실행을 이어서 돈다. 둘 다 이름을 생략하면 최신 실행이다.
 
 **프리셋.** `--profile`은 Phase 2의 8회 측정에서 나온 운용 방침을 그대로 담은 조합 묶음이다.
 
@@ -239,9 +242,53 @@ zannabi run "..." --plan-agent claude --exec-agent codex
 거부한 경우도 무엇을 거부했는지 같은 자리에 남는다. 명령까지 똑같은 충돌은 잃은 것이 없으므로
 보고하지 않는다.
 
+## 죽어도 이어서 돈다 — 이벤트 저널
+
+러너가 죽는 것은 가정이 아니다. 실측에서 사전점검이 타임아웃 143으로 죽었고, 게이트가
+30분씩 도는 실행에서 그 사이 무슨 일이 벌어지는지는 밖에서 볼 방법이 없었다.
+
+`.zannabi/runs/<id>/journal.jsonl`이 그 답이다 — **append-only JSONL 한 파일이 세 가지를 겸한다.**
+tail하면 실시간 화면, 재생하면 크래시 재개의 체크포인트, 끝나고 읽으면 측정 데이터.
+셋을 따로 만들면 어긋날 때 어느 쪽이 진실인지 정할 수 없다.
+
+```
+run-started · run-resumed · plan-finished · approval-requested/resolved · round-started
+· exec-finished · gate-result · round-finished · cost-updated · evidence-lost · run-finished
+```
+
+```bash
+zannabi status                     # 실행 목록
+zannabi status 결제-API            # 이름 일부로 하나를 골라 상세
+zannabi resume 결제-API            # 중단된 지점의 다음 라운드부터
+```
+
+`status`는 **저널만 읽는다.** `report.md`도 `evidence.json`도 열지 않으므로, 저널 하나에서
+나오지 않는 정보는 화면에 뜰 수 없다 — 이 계약을 소비할 다른 도구가 같은 것을 할 수 있는지가
+그 자리에서 판정된다(테스트가 파생 파일을 전부 빈 파일로 덮고 확인한다).
+
+**중단된 라운드는 완료로 세지 않는다.** 게이트를 절반 돌다 죽은 라운드를 완료로 치면 돌지 않은
+게이트가 판정에서 조용히 빠진다 — 거짓 초록의 가장 값싼 경로다. 그 라운드는 처음부터 다시 돈다.
+
+**재개는 승인을 다시 묻지 않는다.** 다시 묻는 것은 이어가는 것이 아니라 새 실행이다. 계획과
+게이트는 사람이 승인한 그대로 쓰고, 실행 디렉토리도 같은 것을 이어 쓴다 — 새 디렉토리로 가르면
+한 작업의 증거가 두 곳에 나뉘고 "몇 라운드 돌았나"에 답이 둘이 된다. 예산은 `--budget`으로 늘려
+이어갈 수 있다(남은 예산이 없어 멈춘 실행에 "예산을 다 썼다"만 말하면 다음 수가 없다).
+
+**이월된 지출은 이월된다.** 재개할 때마다 누적 비용이 0으로 리셋되면 `--max-cost`는 상한이
+아니게 된다. 계획 턴의 지출도 함께 승계된다 — 재개는 계획을 다시 돌리지 않지만 그 돈은 이미 썼다.
+
+**저널이 말하지 않는 것 하나**: 이벤트가 끊긴 실행이 죽은 것인지 지금도 도는 중인지는
+저널로 알 수 없다(프로세스 생사는 저널의 관할이 아니다). `status`는 그 경우 단정하지 않고
+"끊김"이라고만 말한다. 반면 **승인 대기는 구분된다** — 그래서 어휘에 승인 이벤트가 있다.
+
+> 재개는 계획 본문만 저널 밖(`plan.md`)에서 읽는다. 계획 전문을 저널에 실으면 한 줄이 수 KB가
+> 되고 같은 내용이 두 벌 남는다. **상태 재구성은 저널 하나로, 재개는 실행 디렉토리 전체로** —
+> 두 요구는 다르다.
+
 ## 증거 디렉토리
 
-`plan.md`(승인된 계획) · `goal.json`(intent/게이트/예산/루프 설정) · `transcript.jsonl`(에이전트 이벤트)
+`plan.md`(승인된 계획) · `goal.json`(intent/게이트/예산/루프 설정) · `journal.jsonl`(이벤트 저널)
+· `transcript.jsonl`(에이전트 이벤트)
 · `evidence.json`(라운드별 게이트 결과) · `rounds/round-N.patch`(라운드별 변경분)
 · `diff.patch`(최종 변경분) · `report.md`(요약·실패 사유·런타임 조합)
 
@@ -281,7 +328,7 @@ core 변경분은 두 어댑터가 공유하는 프로세스 구동 배관을 �
 ## 개발
 
 ```bash
-bun test        # 202개
+bun test        # 231개
 bun run typecheck
 ```
 

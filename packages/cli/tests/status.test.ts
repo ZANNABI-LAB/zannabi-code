@@ -1,0 +1,128 @@
+import { test, expect } from 'bun:test'
+import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
+import { renderStatus, renderRunLine } from '../src/status'
+import { replay, parseJournal, JOURNAL_FILENAME, listRuns, resolveRun, readJournal } from '@zannabi-lab/core'
+
+const CLI = join(import.meta.dir, '..', 'src', 'index.ts')
+
+/** fake 어댑터로 실행 하나를 만든다 — 실제 저널을 쓰는 경로를 그대로 탄다 */
+async function runOnce(): Promise<string> {
+  const cwd = mkdtempSync(join(tmpdir(), 'zannabi-status-'))
+  const proc = Bun.spawn(['bun', 'run', CLI, 'run', '상태 시험', '--cwd', cwd, '--yes'], {
+    env: { ...process.env, ZANNABI_ADAPTER: 'fake' },
+    stdout: 'ignore',
+    stderr: 'ignore',
+  })
+  await proc.exited
+  return cwd
+}
+
+async function cli(args: string[]): Promise<{ code: number; out: string; err: string }> {
+  const proc = Bun.spawn(['bun', 'run', CLI, ...args], { stdout: 'pipe', stderr: 'pipe' })
+  const [out, err] = await Promise.all([new Response(proc.stdout).text(), new Response(proc.stderr).text()])
+  return { code: await proc.exited, out, err }
+}
+
+test('status는 저널만 읽어 끝난 실행을 재구성한다', async () => {
+  const cwd = await runOnce()
+  const runId = listRuns(cwd)[0]
+
+  const { code, out } = await cli(['status', runId, '--cwd', cwd])
+  expect(code).toBe(0)
+  expect(out).toContain(runId)
+  expect(out).toContain('종료 (success)')
+  expect(out).toContain('게이트 1/1 통과')
+}, 20_000)
+
+test('status는 report.md나 evidence.json 없이도 답한다', async () => {
+  // 계약의 핵심 주장 — 저널 한 파일이면 상태가 나온다. 파생 파일을 지우고 확인한다
+  const cwd = await runOnce()
+  const found = resolveRun(cwd)
+  expect(found.ok).toBe(true)
+  if (!found.ok) return
+  for (const name of ['report.md', 'evidence.json', 'goal.json'])
+    writeFileSync(join(found.dir, name), '')
+
+  const { code, out } = await cli(['status', found.runId, '--cwd', cwd])
+  expect(code).toBe(0)
+  expect(out).toContain('종료 (success)')
+}, 20_000)
+
+test('인자 없는 status는 실행 목록을 한 줄씩 준다', async () => {
+  const cwd = await runOnce()
+  const { code, out } = await cli(['status', '--cwd', cwd])
+  expect(code).toBe(0)
+  expect(out).toContain('✅')
+  expect(out).toContain('1/3R')
+}, 20_000)
+
+test('없는 실행을 물으면 후보를 함께 보여준다', async () => {
+  const cwd = await runOnce()
+  const { code, err } = await cli(['status', '없는이름', '--cwd', cwd])
+  expect(code).toBe(1)
+  expect(err).toContain('그런 실행이 없습니다')
+  // "없습니다"만 주면 사용자에게 다음 수가 없다
+  expect(err).toContain(listRuns(cwd)[0])
+}, 20_000)
+
+test('중단된 실행은 재개 안내와 함께, 단정하지 않고 보고된다', async () => {
+  const cwd = await runOnce()
+  const found = resolveRun(cwd)
+  if (!found.ok) throw new Error('run not found')
+
+  // kill -9 흉내: round-finished 앞에서 자른다
+  const all = parseJournal(readFileSync(join(found.dir, JOURNAL_FILENAME), 'utf-8'))
+  const cut = all.slice(0, all.findIndex(e => e.type === 'round-finished'))
+  writeFileSync(join(found.dir, JOURNAL_FILENAME), cut.map(e => JSON.stringify(e)).join('\n') + '\n')
+
+  const { code, out } = await cli(['status', found.runId, '--cwd', cwd])
+  expect(code).toBe(0)
+  expect(out).toContain('중단됨')
+  expect(out).toContain('이어서 돌 수 있습니다')
+  // 저널은 프로세스 생사를 모른다 — 모르는 것을 아는 척하면 안 된다
+  expect(out).toContain('저널이 말할 수 없습니다')
+}, 20_000)
+
+test('증거 손실은 상태 화면에서 판정보다 먼저 눈에 띈다', () => {
+  const state = replay(
+    parseJournal(
+      [
+        { type: 'run-started', at: 't0', contractVersion: 1, runId: 'r', intent: 'i', cwd: '/x', budget: 3 },
+        { type: 'evidence-lost', at: 't1', target: '(실행 디렉토리 전체)' },
+        { type: 'run-finished', at: 't2', status: 'evidence-lost', attempts: 1 },
+      ]
+        .map(e => JSON.stringify(e))
+        .join('\n'),
+    ),
+  )
+  const text = renderStatus(state)
+  expect(text).toContain('증거로 뒷받침되지 않습니다')
+  expect(renderRunLine('r', state)).toContain('증거손실')
+})
+
+test('비용 미보고를 0원으로 적지 않는다', () => {
+  const cwd = mkdtempSync(join(tmpdir(), 'zannabi-status-cost-'))
+  expect(readJournal(join(cwd, 'nope'))).toEqual([])
+
+  const state = replay(
+    parseJournal(
+      [
+        { type: 'run-started', at: 't0', contractVersion: 1, runId: 'r', intent: 'i', cwd, budget: 3 },
+        {
+          type: 'cost-updated',
+          at: 't1',
+          plan: { inputTokens: 1, outputTokens: 1, turns: 1 },
+          exec: { inputTokens: 1, outputTokens: 1, turns: 1 },
+          coverage: 'none',
+        },
+      ]
+        .map(e => JSON.stringify(e))
+        .join('\n'),
+    ),
+  )
+  const text = renderStatus(state)
+  expect(text).toContain('보고되지 않음')
+  expect(text).not.toContain('$0.00')
+})

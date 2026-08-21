@@ -6,7 +6,16 @@ import { planPrompt, executePrompt, failureSummary } from './prompts'
 import { captureRevision } from './revision'
 import { roundSignature, repeatOf, shouldStop, stallDetectionDead, DEFAULT_STALL_LIMIT } from './progress'
 import { recheckGates, recheckSuspects, DEFAULT_VERIFY_REPEAT } from './recheck'
-import { checkCost, coverageWarning, type CostVerdict, type RanAxes, type UsageSplit } from './cost'
+import {
+  checkCost,
+  costCoverage,
+  coverageWarning,
+  reportedCost,
+  type CostVerdict,
+  type RanAxes,
+  type UsageSplit,
+} from './cost'
+import { CONTRACT_VERSION } from './journal'
 import { WHOLE_RUN, type EvidenceLoss, type RunStore } from './store'
 
 export type ApprovalDecision = { action: 'approve' } | { action: 'abort'; reason?: string }
@@ -58,6 +67,35 @@ export interface LoopOptions {
    * 조합별 실적을 모을 때 실행들을 묶는 키다.
    */
   profile?: string
+  /**
+   * 중단된 실행을 이어받는다. 주면 계획 턴과 승인을 건너뛴다.
+   *
+   * **승인을 다시 묻지 않는 것이 재개의 정의다** — 다시 묻는 것은 이어가는 것이 아니라
+   * 새 실행이다. 완료 기준(게이트)과 계획은 이미 사람이 승인한 그대로 쓴다.
+   */
+  resume?: ResumeState
+}
+
+/**
+ * 재개가 이어받는 것. 저널 재생에서 나오는 값이 그대로 들어온다.
+ *
+ * **계획 본문만 저널 밖(`plan.md`)에서 온다.** 저널에 계획 전문을 싣는 설계도 가능했지만
+ * 한 줄이 수 KB가 되고 `plan.md`와 같은 내용이 두 벌 남는다. 상태 재구성(`status`)은
+ * 저널 하나로 되고, 재개는 실행 디렉토리 전체를 쓴다 — 두 요구는 다르다.
+ */
+export interface ResumeState {
+  /** 승인됐던 계획 본문. 실행 프롬프트에 그대로 들어간다 */
+  planText: string
+  /** 승인됐던 게이트. 재개가 이것을 다시 정하면 완료의 정의가 실행 도중에 바뀐다 */
+  gates: Gate[]
+  /** 이미 완료된 라운드들. 정체 감지와 리포트가 이 이력 위에서 이어진다 */
+  rounds: Round[]
+  /** 다음에 돌 라운드 번호. 중단된 라운드는 처음부터 다시 돈다 */
+  startRound: number
+  /** 이전까지의 사용량. 승계하지 않으면 재개할 때마다 비용 상한이 리셋된다 */
+  usage: UsageSplit
+  /** 실행 턴이 마지막으로 남긴 세션 */
+  sessionId?: string
 }
 
 export interface RuntimeLabels {
@@ -160,16 +198,32 @@ export function droppedWarning(d: DroppedGate): GateWarning {
  */
 export async function runLoop(opts: LoopOptions): Promise<LoopResult> {
   // 계획과 실행을 나눠 센다 — "강한 계획 + 약한 실행"의 값을 재려면 두 축이 분리돼야 한다
-  const usage: UsageSplit = { plan: emptyUsage(), exec: emptyUsage() }
+  const usage: UsageSplit = opts.resume
+    ? { plan: opts.resume.usage.plan, exec: opts.resume.usage.exec }
+    : { plan: emptyUsage(), exec: emptyUsage() }
   // 어느 축이 실제로 돌았는지는 루프만 안다 — 사용량을 보고하지 않는 어댑터는
-  // 돌고도 turns가 0이라, 그 수치로 추정하면 침묵이 "해당 없음"으로 위장된다
-  const ran: RanAxes = { plan: false, exec: false }
+  // 돌고도 turns가 0이라, 그 수치로 추정하면 침묵이 "해당 없음"으로 위장된다.
+  // 재개면 계획 축은 이전 실행에서 이미 돌았다 — 여기서 안 돌았다고 적으면
+  // 커버리지가 "돈을 쓴 적 없음"으로 뒤집혀 상한 경고가 사라진다
+  const ran: RanAxes = opts.resume
+    ? { plan: true, exec: opts.resume.rounds.length > 0 }
+    : { plan: false, exec: false }
   const result = await runLoopWith(opts, usage, ran)
   const withCost =
     opts.maxCostUsd === undefined
       ? result
       : { ...result, cost: checkCost(usage, opts.maxCostUsd, ran) }
-  return degradeOnEvidenceLoss(withCost, opts.store.losses)
+  const final = degradeOnEvidenceLoss(withCost, opts.store.losses)
+  // 끝을 여기서 한 번만 적는다. runLoopWith의 반환 지점은 열 곳이 넘고, 게다가
+  // 증거 소실 강등은 그 뒤에 일어난다 — 각 반환 자리에서 쓰면 저널의 마지막 줄이
+  // 리포트와 다른 판정을 말하게 된다
+  opts.store.appendJournal({
+    type: 'run-finished',
+    status: final.status,
+    attempts: final.attempts,
+    ...(final.detail === undefined ? {} : { detail: final.detail }),
+  })
+  return final
 }
 
 /**
@@ -198,6 +252,18 @@ function degradeOnEvidenceLoss(result: LoopResult, losses: EvidenceLoss[]): Loop
   }
 }
 
+/**
+ * 이어받은 라운드 이력에서 마지막 실패 요약을 되살린다.
+ *
+ * 성공으로 끝난 라운드가 마지막이면 실행이 끝났을 것이므로 여기 오는 마지막 라운드는
+ * 대개 실패한 라운드다. 그래도 확인하고 만든다 — 없는 실패를 프롬프트에 싣지 않는다.
+ */
+function resumeFeedback(rounds: Round[]): string | undefined {
+  const last = rounds[rounds.length - 1]
+  if (!last || last.evidence.every(e => e.outcome === 'pass')) return undefined
+  return failureSummary(last.evidence, last.repeatOf !== undefined)
+}
+
 async function runLoopWith(
   opts: LoopOptions,
   usage: UsageSplit,
@@ -206,6 +272,29 @@ async function runLoopWith(
   const execAdapter = opts.execAdapter ?? opts.adapter
   const split = execAdapter !== opts.adapter
   const runtime = opts.runtime
+
+  const resumed = opts.resume
+  // 저널의 첫 줄. 재개는 이 줄에서 "무엇을 하려던 실행인가"를 읽는다.
+  // 이어가는 실행은 같은 저널에 계속 쓴다 — 새 파일로 갈라 두면 한 작업의 이력이
+  // 두 곳에 나뉘고, "이 실행이 몇 라운드 돌았나"에 두 개의 답이 생긴다
+  opts.store.appendJournal(resumed
+    ? {
+        type: 'run-resumed',
+        fromRound: resumed.startRound,
+        completedRounds: resumed.rounds.length,
+        ...(runtime === undefined ? {} : { runtime }),
+      }
+    : {
+    type: 'run-started',
+    contractVersion: CONTRACT_VERSION,
+    runId: opts.store.runId,
+    intent: opts.intent,
+    cwd: opts.cwd,
+    budget: opts.budget,
+    ...(runtime === undefined ? {} : { runtime }),
+    ...(opts.profile === undefined ? {} : { profile: opts.profile }),
+    ...(opts.maxCostUsd === undefined ? {} : { maxCostUsd: opts.maxCostUsd }),
+  })
 
   // 0. 사전점검 — 인증 만료처럼 실행 전에 알 수 있는 실패를 계획 비용 전에 잡는다.
   //    분리 실행이면 양쪽 다 본다. 실행 턴에 가서야 인증 실패를 발견하면 계획 비용이 날아간다
@@ -223,19 +312,58 @@ async function runLoopWith(
       }
   }
 
-  // 1. PLAN — 에이전트는 계획과 게이트를 제안할 뿐, 판정하지 않는다
-  opts.log('계획 수립 중')
-  const plan = await opts.adapter.run({ prompt: planPrompt(opts.intent), cwd: opts.cwd })
-  ran.plan = true
-  usage.plan = addUsage(usage.plan, plan.usage)
-  for (const e of plan.events) opts.store.appendTranscript(e)
-  if (!plan.ok)
-    return { status: 'agent-error', attempts: 0, rounds: [], runtime, usage, detail: plan.errorReason }
-  opts.store.writePlan(plan.finalText)
-
   // 상한이 제 일을 하고 있는지는 실제로 돌려 봐야 안다 — 어댑터가 비용을 보고할지는
   // 계약이 아니라 관측이다. 그래서 매 검사마다 커버리지를 다시 보고, 말이 달라질 때만 알린다
   let coverageSaid: string | undefined
+  /**
+   * 지금까지의 지출을 저널에 적는다.
+   *
+   * 사용량 이벤트를 더하면 나오는 값이지만 따로 싣는 이유는, 소비자가 러너의 합산 규칙을
+   * 다시 구현하게 만들면 그건 계약이 아니라 숙제이기 때문이다. 상한을 걸지 않은 실행에서도
+   * 적는다 — 상한은 없어도 "얼마 쓰는 중인지"는 밖에서 보여야 한다.
+   */
+  const noteCost = () => {
+    const spentUsd = reportedCost(usage, ran)
+    opts.store.appendJournal({
+      type: 'cost-updated',
+      plan: usage.plan,
+      exec: usage.exec,
+      ...(spentUsd === undefined ? {} : { spentUsd }),
+      coverage: costCoverage(usage, ran),
+    })
+  }
+
+  // 1. PLAN — 에이전트는 계획과 게이트를 제안할 뿐, 판정하지 않는다.
+  //    재개는 이 턴을 통째로 건너뛴다: 계획은 이미 있고 사람이 이미 승인했다.
+  //    다시 계획하면 돈이 두 번 들 뿐 아니라 **승인받은 것과 다른 계획으로 이어가게 된다**
+  let planText: string
+  let planSessionId: string | undefined
+  if (resumed) {
+    planText = resumed.planText
+    planSessionId = resumed.sessionId
+    opts.log(
+      `재개: 완료된 라운드 ${resumed.rounds.length}개를 이어받아 라운드 ${resumed.startRound}부터 돕니다`,
+    )
+  } else {
+    opts.log('계획 수립 중')
+    const plan = await opts.adapter.run({ prompt: planPrompt(opts.intent), cwd: opts.cwd })
+    ran.plan = true
+    usage.plan = addUsage(usage.plan, plan.usage)
+    for (const e of plan.events) opts.store.appendTranscript(e)
+    opts.store.appendJournal({
+      type: 'plan-finished',
+      ok: plan.ok,
+      ...(plan.usage === undefined ? {} : { usage: plan.usage }),
+      ...(plan.sessionId === undefined ? {} : { sessionId: plan.sessionId }),
+    })
+    noteCost()
+    if (!plan.ok)
+      return { status: 'agent-error', attempts: 0, rounds: [], runtime, usage, detail: plan.errorReason }
+    opts.store.writePlan(plan.finalText)
+    planText = plan.finalText
+    planSessionId = plan.sessionId
+  }
+
   /** 상한에 닿았으면 판정을 돌려준다. 상한이 없거나 여유가 있으면 undefined */
   const costStop = (): CostVerdict | undefined => {
     if (opts.maxCostUsd === undefined) return undefined
@@ -269,7 +397,7 @@ async function runLoopWith(
     }
 
   // 거부하더라도 일단 뽑는다 — 무엇을 거부했는지 남기려면 그것부터 알아야 한다
-  const suggested = extractGates(plan.finalText) ?? []
+  const suggested = resumed ? [] : (extractGates(planText) ?? [])
   if (opts.rejectSuggested) opts.log('제안 게이트를 받지 않습니다 — 사용자 게이트만 씁니다')
   // 게이트 타임아웃은 출처를 가리지 않고 걸린다. 제안 게이트만 무제한이면
   // 완료 기준을 에이전트가 정하면서 시간 한도까지 정하는 셈이 된다
@@ -287,24 +415,46 @@ async function runLoopWith(
         '예산을 늘리거나 --stall-limit을 낮추세요',
     )
 
-  const merged = mergeGates(opts.userGates, suggested, { reject: opts.rejectSuggested })
+  // 재개는 게이트를 다시 정하지 않는다 — 완료의 정의가 실행 도중에 바뀌면
+  // 앞 라운드의 증거와 뒤 라운드의 증거가 서로 다른 기준을 본 것이 된다
+  const merged = resumed
+    ? { gates: resumed.gates, dropped: [] as DroppedGate[] }
+    : mergeGates(opts.userGates, suggested, { reject: opts.rejectSuggested })
   const dropped = merged.dropped
   const gates = merged.gates.map(withTimeout)
   if (gates.length === 0)
     return { status: 'no-gates', attempts: 0, rounds: [], runtime, usage, dropped, stallDead }
 
-  // 게이트가 이 환경에서 실행 가능한지만 본다. 통과/불통과 판정은 하지 않는다
-  const warnings = [
-    ...(await preflightGates(gates, { cwd: opts.cwd })),
-    ...dropped.map(droppedWarning),
-  ]
-  for (const w of warnings) opts.log(`게이트 경고 [${w.gate}] ${w.reason}`)
+  // 재개는 승인을 다시 묻지 않는다 — **다시 묻는 것은 이어가는 것이 아니라 새 실행이다.**
+  // 사전점검도 건너뛴다: 그 검사의 값은 "계획 비용을 날리기 전에 잡는 것"인데
+  // 재개에는 계획 비용이 없고, 실행 불가한 게이트는 어차피 env-error로 정직하게 끝난다
+  if (!resumed) {
+    // 게이트가 이 환경에서 실행 가능한지만 본다. 통과/불통과 판정은 하지 않는다
+    const warnings = [
+      ...(await preflightGates(gates, { cwd: opts.cwd })),
+      ...dropped.map(droppedWarning),
+    ]
+    for (const w of warnings) opts.log(`게이트 경고 [${w.gate}] ${w.reason}`)
 
-  const decision = await opts.approve(plan.finalText, gates, warnings)
-  if (decision.action === 'abort')
-    return { status: 'aborted', attempts: 0, rounds: [], runtime, usage, dropped, stallDead, detail: decision.reason }
+    opts.store.appendJournal({
+      type: 'approval-requested',
+      gates,
+      warnings: warnings.map(w => ({ gate: w.gate, cmd: w.cmd, reason: w.reason, kind: w.kind })),
+      ...(dropped.length > 0 ? { dropped } : {}),
+    })
+    const decision = await opts.approve(planText, gates, warnings)
+    opts.store.appendJournal({
+      type: 'approval-resolved',
+      action: decision.action,
+      ...(decision.action === 'abort' && decision.reason !== undefined
+        ? { reason: decision.reason }
+        : {}),
+    })
+    if (decision.action === 'abort')
+      return { status: 'aborted', attempts: 0, rounds: [], runtime, usage, dropped, stallDead, detail: decision.reason }
+  }
 
-  opts.store.writeGoal({
+  if (!resumed) opts.store.writeGoal({
     intent: opts.intent,
     gates,
     budget: opts.budget,
@@ -319,13 +469,15 @@ async function runLoopWith(
   })
 
   // 2~4. EXECUTE → VERIFY → 실패 증거와 함께 재시도
-  const rounds: Round[] = []
+  const rounds: Round[] = resumed ? [...resumed.rounds] : []
   // 계획 세션은 계획 어댑터의 것이다 — 다른 런타임이 이어받을 수 없으므로 분리 실행이면 버린다.
   // 계획 내용 자체는 executePrompt에 통째로 들어가므로 맥락은 잃지 않는다
-  let sessionId = split ? undefined : plan.sessionId
-  let feedback: string | undefined
+  let sessionId = resumed ? resumed.sessionId : split ? undefined : planSessionId
+  // 이어받은 실행도 앞 라운드가 왜 실패했는지를 알아야 한다. 없으면 재개된 턴은 실패 증거 없이
+  // 처음부터 다시 생각하게 되고, 재시도의 값(실패를 보고 고친다)이 사라진다
+  let feedback = resumed ? resumeFeedback(rounds) : undefined
 
-  for (let attempt = 1; attempt <= opts.budget; attempt++) {
+  for (let attempt = resumed ? resumed.startRound : 1; attempt <= opts.budget; attempt++) {
     // 라운드를 시작하기 전에 본다. 예산은 남았어도 돈이 없으면 그 라운드는 시작하지 않는다 —
     // 여기까지의 작업물은 워킹트리와 증거에 그대로 남으므로, 사람이 이어서 하거나
     // 상한을 올려 다시 돌릴 수 있다
@@ -341,8 +493,9 @@ async function runLoopWith(
         stallDead,
         detail: `${costDetail(stop)} — 예산 ${opts.budget}라운드 중 ${attempt - 1}라운드를 돌고 멈췄습니다`,
       }
+    opts.store.appendJournal({ type: 'round-started', round: attempt })
     opts.log(`시도 ${attempt}/${opts.budget}: 실행 중`)
-    const prompt = executePrompt(plan.finalText, feedback)
+    const prompt = executePrompt(planText, feedback)
     let exec = await execAdapter.run({ prompt, cwd: opts.cwd, resumeSessionId: sessionId })
     ran.exec = true
     usage.exec = addUsage(usage.exec, exec.usage)
@@ -359,6 +512,17 @@ async function runLoopWith(
       for (const e of exec.events) opts.store.appendTranscript(e)
     }
 
+    // 게이트를 돌리기 전에 적는다 — 검증 도중 죽어도 실행 턴의 지출과 세션은 이미 생겼고,
+    // 라운드 단위로만 남기면 재개할 때 그 둘이 사라져 상한이 거짓말을 한다
+    opts.store.appendJournal({
+      type: 'exec-finished',
+      round: attempt,
+      ok: exec.ok,
+      ...(exec.usage === undefined ? {} : { usage: exec.usage }),
+      ...(sessionId === undefined ? {} : { sessionId }),
+    })
+    noteCost()
+
     if (!exec.ok)
       return {
         status: 'agent-error', attempts: attempt, rounds, runtime, usage, dropped, stallDead, detail: exec.errorReason,
@@ -372,12 +536,25 @@ async function runLoopWith(
 
     opts.log('검증 게이트 실행 중')
     const evidence: Evidence[] = []
-    for (const gate of gates) evidence.push(await runGate(gate, { cwd: opts.cwd, revision }))
+    for (const gate of gates) {
+      const one = await runGate(gate, { cwd: opts.cwd, revision })
+      evidence.push(one)
+      // 게이트 하나가 끝날 때마다 적는다. 라운드 끝에 몰아 쓰면 30분짜리 게이트를 도는 동안
+      // 밖에서는 러너가 멈춘 것과 구분되지 않는다
+      opts.store.appendJournal({ type: 'gate-result', round: attempt, phase: 'verify', evidence: one })
+    }
 
     const signature = roundSignature(revision, evidence)
     const round: Round = { round: attempt, revision, evidence, repeatOf: repeatOf(rounds, signature) }
     rounds.push(round)
     opts.store.writeEvidence(rounds)
+    opts.store.appendJournal({
+      type: 'round-finished',
+      round: attempt,
+      revision,
+      ...(round.repeatOf === undefined ? {} : { repeatOf: round.repeatOf }),
+      allPass: evidence.every(e => e.outcome === 'pass'),
+    })
     if (round.repeatOf !== undefined)
       opts.log(`라운드 ${attempt}: 변경분과 게이트 결과가 라운드 ${round.repeatOf}과 동일`)
 
@@ -398,9 +575,16 @@ async function runLoopWith(
       // "통과했다"만 말할 뿐 "다시 해도 통과한다"는 말은 하지 않는다
       if (verifyRepeat > 1) {
         opts.log(`통과 재확인 중 (총 ${verifyRepeat}회)`)
-        const recheck = await recheckGates(gates, verifyRepeat, gate =>
-          runGate(gate, { cwd: opts.cwd, revision }),
-        )
+        const recheck = await recheckGates(gates, verifyRepeat, async gate => {
+          const one = await runGate(gate, { cwd: opts.cwd, revision })
+          opts.store.appendJournal({
+            type: 'gate-result',
+            round: attempt,
+            phase: 'recheck',
+            evidence: one,
+          })
+          return one
+        })
         round.recheck = recheck.evidence
         if (recheck.unreproduced.length > 0) round.unreproduced = recheck.unreproduced
         // 결과가 갈리지 않았더라도 재확인이 실제로 다시 돌았는지는 별개 질문이다.
