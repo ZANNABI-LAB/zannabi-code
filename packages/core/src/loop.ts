@@ -75,6 +75,17 @@ export interface LoopOptions {
    */
   resume?: ResumeState
   /**
+   * 이미 세워지고 승인된 계획으로 시작한다 — 계획 턴을 돌리지 않는다.
+   *
+   * best-of-N(`race`)이 쓰는 자리다. **모든 조에 같은 계획을 주어야 비교가 성립한다** —
+   * 계획까지 조마다 다르면 무엇 때문에 이겼는지 알 수 없고, 계획 비용을 N번 내며,
+   * 무엇보다 승인이 N번 뜨는 도구는 쓸 수 없다.
+   *
+   * {@link resume}과 다른 점: 재개는 **중단된 실행을 이어받는** 것이라 라운드 이력과
+   * 지출을 승계하지만, 이쪽은 라운드 0에서 시작하는 새 실행이다.
+   */
+  sharedPlan?: { text: string; gates: Gate[] }
+  /**
    * 라운드 하나가 끝날 때마다 불린다 — 워크트리 격리가 라운드별 커밋을 남기는 자리다.
    *
    * 루프에 워크트리 개념을 넣지 않은 이유: 어댑터도 게이트도 리비전도 `cwd` 하나만 보므로,
@@ -349,7 +360,14 @@ async function runLoopWith(
   //    다시 계획하면 돈이 두 번 들 뿐 아니라 **승인받은 것과 다른 계획으로 이어가게 된다**
   let planText: string
   let planSessionId: string | undefined
-  if (resumed) {
+  const shared = opts.sharedPlan
+  if (shared) {
+    // 계획 턴을 돌리지 않았으므로 usage도 세션도 없다 — 없는 것을 있다고 적지 않는다.
+    // plan-finished는 남긴다: 재생하는 쪽에서 "계획 단계가 끝났다"는 사실은 같기 때문이다
+    planText = shared.text
+    opts.store.writePlan(shared.text)
+    opts.store.appendJournal({ type: 'plan-finished', ok: true })
+  } else if (resumed) {
     planText = resumed.planText
     planSessionId = resumed.sessionId
     opts.log(
@@ -408,7 +426,7 @@ async function runLoopWith(
     }
 
   // 거부하더라도 일단 뽑는다 — 무엇을 거부했는지 남기려면 그것부터 알아야 한다
-  const suggested = resumed ? [] : (extractGates(planText) ?? [])
+  const suggested = resumed || shared ? [] : (extractGates(planText) ?? [])
   if (opts.rejectSuggested) opts.log('제안 게이트를 받지 않습니다 — 사용자 게이트만 씁니다')
   // 게이트 타임아웃은 출처를 가리지 않고 걸린다. 제안 게이트만 무제한이면
   // 완료 기준을 에이전트가 정하면서 시간 한도까지 정하는 셈이 된다
@@ -430,7 +448,9 @@ async function runLoopWith(
   // 앞 라운드의 증거와 뒤 라운드의 증거가 서로 다른 기준을 본 것이 된다
   const merged = resumed
     ? { gates: resumed.gates, dropped: [] as DroppedGate[] }
-    : mergeGates(opts.userGates, suggested, { reject: opts.rejectSuggested })
+    : shared
+      ? { gates: shared.gates, dropped: [] as DroppedGate[] }
+      : mergeGates(opts.userGates, suggested, { reject: opts.rejectSuggested })
   const dropped = merged.dropped
   const gates = merged.gates.map(withTimeout)
   if (gates.length === 0)
@@ -439,7 +459,12 @@ async function runLoopWith(
   // 재개는 승인을 다시 묻지 않는다 — **다시 묻는 것은 이어가는 것이 아니라 새 실행이다.**
   // 사전점검도 건너뛴다: 그 검사의 값은 "계획 비용을 날리기 전에 잡는 것"인데
   // 재개에는 계획 비용이 없고, 실행 불가한 게이트는 어차피 env-error로 정직하게 끝난다
-  if (!resumed) {
+  if (shared) {
+    // 승인은 race 단계에서 사람이 한 번 했다. 각 조의 저널에도 그 사실이 남아야
+    // 저널만으로 재생하는 쪽이 "승인 없이 돌았다"고 읽지 않는다
+    opts.store.appendJournal({ type: 'approval-requested', gates, warnings: [] })
+    opts.store.appendJournal({ type: 'approval-resolved', action: 'approve' })
+  } else if (!resumed) {
     // 게이트가 이 환경에서 실행 가능한지만 본다. 통과/불통과 판정은 하지 않는다
     const warnings = [
       ...(await preflightGates(gates, { cwd: opts.cwd })),

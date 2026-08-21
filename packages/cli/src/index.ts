@@ -12,11 +12,13 @@ import {
   DEFAULT_STALL_LIMIT, DEFAULT_VERIFY_REPEAT, DEFAULT_GATE_TIMEOUT_MS, CONFIG_FILENAME,
   listRuns, resolveRun, readJournal, replay, RUNS_DIR, resumability, toRounds,
   createWorktree, removeWorktree, commitRound, commitCount, branchDiff, worktreeUsable, WorktreeError,
+  parseArm,
   type Worktree, type Round,
   type ResumeState,
   type Gate, type GateWarning, type AgentAdapter, type ApprovalDecision, type Profile,
 } from '@zannabi-lab/core'
 import { renderStatus, renderRunLine } from './status'
+import { runRace, renderRace, RACES_DIR } from './race'
 import { ClaudeAdapter } from '@zannabi-lab/adapter-claude'
 import { CodexAdapter } from '@zannabi-lab/adapter-codex'
 
@@ -150,6 +152,8 @@ async function main() {
       'gate-timeout': { type: 'string' },
       'no-suggest': { type: 'boolean' },
       worktree: { type: 'boolean' },
+      arm: { type: 'string', multiple: true, default: [] },
+      concurrency: { type: 'string' },
       profile: { type: 'string' },
       yes: { type: 'boolean', default: false },
     },
@@ -160,7 +164,10 @@ async function main() {
   if (command === 'status') return status(resolve(values.cwd), intent)
 
   // resume은 이름을 생략할 수 있다 — 대개 방금 죽은 그 실행을 이어가려는 것이다
-  if ((command !== 'run' && command !== 'resume') || (command === 'run' && !intent)) {
+  if (
+    (command !== 'run' && command !== 'resume' && command !== 'race') ||
+    ((command === 'run' || command === 'race') && !intent)
+  ) {
     console.error(
       '사용법: zannabi run "<작업 설명>" [--cwd .] [--budget 3] [--gate "name:cmd"]' +
       ` [--agent ${AGENTS.join('|')}] [--model <이름>] [--yes]\n` +
@@ -174,6 +181,9 @@ async function main() {
       `  조합 프리셋: [--profile ${PROFILE_NAMES.join('|')}]\n` +
       PROFILE_NAMES.map(n => `    ${n.padEnd(9)} ${PROFILES[n].summary}`).join('\n') + '\n' +
       `  우선순위: 플래그 > ${CONFIG_FILENAME}의 개별 항목 > 프리셋 > 기본값\n` +
+      '\nbest-of-N: zannabi race "<작업 설명>" --arm claude:opus-5 --arm codex [--concurrency N]\n' +
+      '  같은 계획을 조마다 다른 실행 런타임으로 동시에 돌리고 게이트로 고릅니다\n' +
+      '  (조는 실행 턴만 가릅니다 — 계획은 한 번만 세워 공유합니다)\n' +
       '\n이어서 돌기: zannabi resume [<실행 이름 일부>] [--cwd .] [--budget N]\n' +
       '  중단된 지점의 다음 라운드부터 갑니다 — 계획과 승인은 다시 묻지 않습니다\n' +
       '\n상태 보기: zannabi status [<실행 이름 일부>] [--cwd .]\n' +
@@ -278,6 +288,58 @@ async function main() {
   } catch (err) {
     console.error(`[zannabi] ${err instanceof Error ? err.message : err}`)
     process.exit(1)
+  }
+
+  // race는 여기서 갈린다 — 조를 만들고 각자 워크트리에서 돌린다.
+  // run의 준비 과정(설정·프리셋·게이트·숫자 옵션)은 그대로 쓴다: 조건이 달라지면 비교가 성립하지 않는다
+  if (command === 'race') {
+    if ((values.arm as string[]).length < 2) {
+      console.error('[zannabi] race는 --arm이 둘 이상이어야 합니다 — 하나면 그냥 run입니다')
+      process.exit(1)
+    }
+    const usable = await worktreeUsable(cwd)
+    if (!usable.ok) {
+      // 격리 없이는 동시 실행이 성립하지 않는다. 조들이 워킹트리를 공유하면 서로의 변경을 자기 것으로 본다
+      console.error(`[zannabi] race는 워크트리 격리가 필요합니다 — ${usable.reason}`)
+      process.exit(1)
+    }
+    let arms
+    try {
+      arms = (values.arm as string[]).map(a => parseArm(a, AGENTS))
+    } catch (err) {
+      console.error(`[zannabi] ${err instanceof Error ? err.message : err}`)
+      process.exit(1)
+    }
+    const concurrency = number('concurrency', values.concurrency, arms.length, 1)
+    console.log(
+      `[zannabi] race: 조 ${arms.length}개 (${arms.map(a => a.name).join(', ')}) · ` +
+        `동시 ${concurrency} · 조마다 예산 ${budget}` +
+        (maxCostUsd === undefined ? '' : ` · 조마다 상한 $${maxCostUsd} (최대 $${(maxCostUsd * arms.length).toFixed(2)})`),
+    )
+
+    const summary = await runRace({
+      intent,
+      cwd,
+      arms,
+      userGates,
+      budget,
+      ...(maxCostUsd === undefined ? {} : { maxCostUsd }),
+      gateTimeoutMs,
+      verifyRepeat,
+      stallLimit,
+      rejectSuggested,
+      concurrency,
+      planAdapter: pickAdapter(plan),
+      planLabel: label(plan),
+      adapterFor: arm => pickAdapter({ agent: arm.agent as AgentName, model: arm.model }),
+      approve: values.yes ? approveAutomatically : approveViaTerminal,
+      log: message => console.log(`[zannabi] ${message}`),
+    })
+    if (!summary) process.exit(1)
+    console.log(`\n${renderRace(summary)}\n`)
+    console.log(`[zannabi] 집계: ${cwd}/${RACES_DIR}/${summary.raceId}/`)
+    // 통과한 조가 하나도 없으면 실패다 — N개를 돌렸다는 사실이 성공을 만들지 않는다
+    process.exit(summary.passed.length > 0 ? 0 : 1)
   }
 
   // 완료의 정의가 실행 도중에 바뀌는지 본다 — 설정 파일은 대상 저장소 안에 있어
