@@ -33,8 +33,6 @@ export const ConfigSchema = z.object({
   verifyRepeat: z.number().int().min(1).optional(),
   gateTimeoutMs: z.number().int().positive().optional(),
   rejectSuggested: z.boolean().optional(),
-  /** 정체 시 실행 턴을 계획 런타임으로 승격할지. 기본 꺼짐 — 아직 실전에서 검증되지 않았다 */
-  escalate: z.boolean().optional(),
 })
 export type Config = z.infer<typeof ConfigSchema>
 

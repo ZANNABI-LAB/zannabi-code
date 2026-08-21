@@ -67,15 +67,6 @@ export function buildReport(
         ` — 라운드가 제자리였더라도 예산 소진으로 끝난다`,
     )
 
-  // 승격은 조합을 바꾼 사건이다 — 이 줄이 없으면 리포트의 runtime 표기가 실제로 무엇이
-  // 돌았는지를 잘못 말하게 되고, 조합별 비용 비교가 조용히 오염된다
-  if (result.escalation)
-    lines.push(
-      `- ⬆️ **승격**: 라운드 ${result.escalation.round}부터 실행 턴이` +
-        ` \`${result.escalation.from}\` → \`${result.escalation.to}\`` +
-        ` (사유: 정체 — 변경분과 게이트 결과가 연속으로 동일)`,
-    )
-
   // 증거가 사라졌다는 사실은 리포트 맨 위에 온다. 이 실행의 다른 모든 주장이
   // 그만큼 덜 뒷받침된다는 뜻이라, 아래쪽 절에 묻히면 안 된다
   const lost = losses && losses.length > 0 ? losses : result.evidenceLoss

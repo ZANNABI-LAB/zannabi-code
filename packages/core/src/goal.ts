@@ -89,8 +89,6 @@ export const GoalSchema = z.object({
       stallLimit: z.number().int().min(0),
       verifyRepeat: z.number().int().min(1),
       rejectSuggested: z.boolean(),
-      /** 정체 시 실행 턴 승격을 켰는지. 켠 것과 실제로 승격된 것은 다르다 — 후자는 report에 남는다 */
-      escalate: z.boolean().optional(),
       /** 어떤 프리셋으로 돌았는지. 조합별 실적을 모을 때의 묶음 키가 된다 */
       profile: z.string().optional(),
     })

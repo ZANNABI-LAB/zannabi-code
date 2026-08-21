@@ -7,7 +7,6 @@ import { captureRevision } from './revision'
 import { roundSignature, repeatOf, shouldStop, stallDetectionDead, DEFAULT_STALL_LIMIT } from './progress'
 import { recheckGates, recheckSuspects, DEFAULT_VERIFY_REPEAT } from './recheck'
 import { checkCost, coverageWarning, type CostVerdict, type RanAxes, type UsageSplit } from './cost'
-import { escalationBlocked, type Escalation } from './escalate'
 import { WHOLE_RUN, type EvidenceLoss, type RunStore } from './store'
 
 export type ApprovalDecision = { action: 'approve' } | { action: 'abort'; reason?: string }
@@ -55,14 +54,6 @@ export interface LoopOptions {
    */
   maxCostUsd?: number
   /**
-   * 정체가 감지되면 중단하는 대신 **실행 턴을 계획 런타임으로 올려** 한 번 더 시도한다.
-   *
-   * 기본은 꺼짐이다 — 정체 감지 자체가 아직 실전에서 발동한 적이 없어(11회 측정 전부
-   * 1라운드) 이 동작은 미검증이고, 검증되지 않은 자동 동작이 기본값으로 사람의 지출에
-   * 관여해서는 안 된다. 근거와 정책은 `escalate.ts`.
-   */
-  escalate?: boolean
-  /**
    * 이 실행에 적용된 프리셋 이름. 루프 동작에는 영향이 없고 증거에만 남는다 —
    * 조합별 실적을 모을 때 실행들을 묶는 키다.
    */
@@ -107,11 +98,6 @@ export interface LoopResult {
    * 예산 소진으로 끝난 실행을 나중에 읽을 때, 감지가 안 걸린 것인지 못 걸린 것인지 갈린다.
    */
   stallDead?: boolean
-  /**
-   * 실행 턴이 실제로 승격됐다면 그 기록. 승격을 켰어도 발동하지 않았으면 없다 —
-   * "켰다"와 "일어났다"는 다른 사실이고, 리포트가 그 둘을 섞으면 안 된다.
-   */
-  escalation?: Escalation
   /**
    * 이 실행 도중 증거가 사라진 기록. 비어 있으면 아예 없다.
    *
@@ -301,11 +287,6 @@ async function runLoopWith(
         '예산을 늘리거나 --stall-limit을 낮추세요',
     )
 
-  // 승격을 켰는데 올릴 곳이 없으면 승인 전에 말한다. 조용히 아무 일도 안 하면
-  // 사용자는 안전장치가 걸린 줄 알고 돌린다
-  const escalateBlockedReason = opts.escalate ? escalationBlocked(runtime) : undefined
-  if (escalateBlockedReason) opts.log(escalateBlockedReason)
-
   const merged = mergeGates(opts.userGates, suggested, { reject: opts.rejectSuggested })
   const dropped = merged.dropped
   const gates = merged.gates.map(withTimeout)
@@ -333,19 +314,12 @@ async function runLoopWith(
       stallLimit,
       verifyRepeat,
       rejectSuggested: opts.rejectSuggested ?? false,
-      escalate: opts.escalate ?? false,
       profile: opts.profile,
     },
   })
 
   // 2~4. EXECUTE → VERIFY → 실패 증거와 함께 재시도
   const rounds: Round[] = []
-  // 승격하면 실행 턴이 다른 런타임으로 갈린다 — 어느 어댑터로 돌고 있는지를 변수로 둔다
-  let activeExec = execAdapter
-  let escalation: Escalation | undefined
-  // 정체는 **승격 이후 라운드만** 세어야 한다. 실행자가 바뀌었는데 앞선 실행자의 제자리
-  // 라운드까지 함께 세면, 새 실행자는 첫 시도에서 곧바로 정체로 끊긴다
-  let stallFrom = 0
   // 계획 세션은 계획 어댑터의 것이다 — 다른 런타임이 이어받을 수 없으므로 분리 실행이면 버린다.
   // 계획 내용 자체는 executePrompt에 통째로 들어가므로 맥락은 잃지 않는다
   let sessionId = split ? undefined : plan.sessionId
@@ -365,12 +339,11 @@ async function runLoopWith(
         usage,
         dropped,
         stallDead,
-        escalation,
         detail: `${costDetail(stop)} — 예산 ${opts.budget}라운드 중 ${attempt - 1}라운드를 돌고 멈췄습니다`,
       }
     opts.log(`시도 ${attempt}/${opts.budget}: 실행 중`)
     const prompt = executePrompt(plan.finalText, feedback)
-    let exec = await activeExec.run({ prompt, cwd: opts.cwd, resumeSessionId: sessionId })
+    let exec = await execAdapter.run({ prompt, cwd: opts.cwd, resumeSessionId: sessionId })
     ran.exec = true
     usage.exec = addUsage(usage.exec, exec.usage)
     sessionId = exec.sessionId ?? sessionId
@@ -380,7 +353,7 @@ async function runLoopWith(
     // 재시도 예산은 게이트 불통과를 위한 것이므로 여기서 소모하지 않는다
     if (!exec.ok && sessionId) {
       opts.log('에이전트 실패 — 세션 복구 시도')
-      exec = await activeExec.run({ prompt, cwd: opts.cwd, resumeSessionId: sessionId })
+      exec = await execAdapter.run({ prompt, cwd: opts.cwd, resumeSessionId: sessionId })
       usage.exec = addUsage(usage.exec, exec.usage)
       sessionId = exec.sessionId ?? sessionId
       for (const e of exec.events) opts.store.appendTranscript(e)
@@ -418,7 +391,6 @@ async function runLoopWith(
         usage,
         dropped,
         stallDead,
-        escalation,
         detail: broken.map(e => `[${e.gate}] ${e.cmd} → exit ${e.exitCode}`).join('; '),
       }
     if (evidence.every(e => e.outcome === 'pass')) {
@@ -453,40 +425,17 @@ async function runLoopWith(
             usage,
             dropped,
             stallDead,
-        escalation,
             detail:
               `통과가 재현되지 않은 게이트: ${recheck.unreproduced.join(', ')}` +
               ' — 첫 회는 통과했으나 다시 돌리자 같은 결과가 나오지 않아 완료로 보지 않습니다',
           }
       }
-      return { status: 'success', attempts: attempt, rounds, runtime, usage, dropped, stallDead, escalation }
+      return { status: 'success', attempts: attempt, rounds, runtime, usage, dropped, stallDead }
     }
 
     // 같은 자리를 도는 중이면 남은 예산을 태우지 않는다. 예산은 진전을 사는 값이지
     // 같은 실패를 다시 확인하는 값이 아니다
-    if (shouldStop(rounds.slice(stallFrom), stallLimit)) {
-      // 다만 그 "못 푼다"는 관측은 **이 실행자에 대한** 것이다. 승격이 켜져 있고 올릴 곳이
-      // 있으면, 중단 대신 실행 턴을 계획 런타임으로 올려 한 번 더 시도한다
-      const canEscalate = opts.escalate && !escalation && !escalateBlockedReason && split
-      if (canEscalate && attempt < opts.budget) {
-        escalation = {
-          round: attempt + 1,
-          from: runtime?.exec ?? execAdapter.name,
-          to: runtime?.plan ?? opts.adapter.name,
-          reason: 'no-progress',
-        }
-        activeExec = opts.adapter
-        // 세션은 앞선 런타임의 것이라 이어받을 수 없다. 맥락은 계획 전문과 실패 증거가
-        // 프롬프트에 통째로 실려 전달되므로 잃지 않는다
-        sessionId = undefined
-        stallFrom = rounds.length
-        opts.log(
-          `정체 감지 — 실행 턴을 승격합니다: ${escalation.from} → ${escalation.to}` +
-            ` (라운드 ${escalation.round}부터)`,
-        )
-        feedback = failureSummary(evidence, round.repeatOf !== undefined)
-        continue
-      }
+    if (shouldStop(rounds, stallLimit))
       return {
         status: 'no-progress',
         attempts: attempt,
@@ -495,16 +444,8 @@ async function runLoopWith(
         usage,
         dropped,
         stallDead,
-        escalation,
-        detail:
-          `${stallLimit}라운드 연속으로 변경분과 게이트 결과가 동일합니다 (diff ${revision.diffHash})` +
-          (escalation
-            ? ` — 실행 턴을 ${escalation.to}로 승격한 뒤에도 같은 자리였습니다`
-            : opts.escalate && canEscalate === true
-              ? ' — 승격할 예산이 남지 않아 중단했습니다'
-              : ''),
+        detail: `${stallLimit}라운드 연속으로 변경분과 게이트 결과가 동일합니다 (diff ${revision.diffHash})`,
       }
-    }
 
     feedback = failureSummary(evidence, round.repeatOf !== undefined)
   }
