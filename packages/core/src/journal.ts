@@ -91,6 +91,14 @@ export const JournalEventSchema = z.discriminatedUnion('type', [
     usage: UsageSchema.optional(),
     /** 계획 턴의 세션. 분리 실행이 아니면 실행 턴이 이어받는다 */
     sessionId: z.string().optional(),
+    /**
+     * 런타임이 **실제로 쓴** 모델. 우리가 지정한 값이 아니라 그쪽이 보고한 값이다.
+     *
+     * `run-started`의 `runtime`은 실행 **전에** 쓰이므로 지정값밖에 모른다.
+     * 실제 모델은 첫 턴이 끝나야 알 수 있고, 그것을 여기 싣지 않으면
+     * 리포트는 아는데 저널은 모르는 상태가 된다 — 실측에서 정확히 그랬다.
+     */
+    model: z.string().optional(),
   }),
   /**
    * 사람의 승인을 기다리는 중.
@@ -135,6 +143,8 @@ export const JournalEventSchema = z.discriminatedUnion('type', [
     ok: z.boolean(),
     usage: UsageSchema.optional(),
     sessionId: z.string().optional(),
+    /** 실행 런타임이 실제로 쓴 모델. {@link plan-finished}의 같은 필드와 같은 이유로 있다 */
+    model: z.string().optional(),
   }),
   /**
    * 게이트 하나가 시작됐다.

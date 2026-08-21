@@ -102,6 +102,11 @@ export interface ReplayRound {
   allPass: boolean
 }
 
+/** `claude:default` 같은 지정값 라벨을 실제 보고된 모델로 바꾼다 */
+function withModel(label: string, reported: string): string {
+  return `${label.split(':')[0]}:${reported}`
+}
+
 export function replay(events: JournalEvent[]): ReplayState {
   const state: ReplayState = {
     phase: 'interrupted',
@@ -143,6 +148,10 @@ export function replay(events: JournalEvent[]): ReplayState {
         // 계획 세션은 계획 런타임의 것이다. 분리 실행이면 실행 턴이 이어받지 않으므로
         // 여기서 잡은 세션은 exec-finished가 덮어쓸 때까지의 잠정값이다
         if (event.sessionId !== undefined) state.sessionId = event.sessionId
+        // 실제로 돈 모델이 보고됐으면 run-started의 지정값을 그것으로 고친다 —
+        // 지정한 것과 실제로 돈 것이 다르면 사실은 후자다
+        if (event.model !== undefined && state.runtime)
+          state.runtime = { ...state.runtime, plan: withModel(state.runtime.plan, event.model) }
         break
       case 'approval-requested':
         state.gates = event.gates
@@ -157,6 +166,8 @@ export function replay(events: JournalEvent[]): ReplayState {
         break
       case 'exec-finished':
         if (event.sessionId !== undefined) state.sessionId = event.sessionId
+        if (event.model !== undefined && state.runtime)
+          state.runtime = { ...state.runtime, exec: withModel(state.runtime.exec, event.model) }
         state.phase = 'verifying'
         break
       case 'gate-started':

@@ -212,7 +212,7 @@ test('in 열이 캐시와 겹치지 않는다는 사실을 표에 밝힌다', ()
 })
 
 test('재확인이 헛돌았을 정황이 리포트에 숫자로 남는다', () => {
-  const suspect = { gate: 'build', firstMs: 54_900, recheckMs: 14_800 }
+  const suspect = { gate: 'build', firstMs: 54_900, recheckMs: 14_800, reason: 'ratio' as const }
   const report = buildReport(
     {
       status: 'success',
@@ -224,6 +224,30 @@ test('재확인이 헛돌았을 정황이 리포트에 숫자로 남는다', () 
   expect(report).toContain('## 재확인이 헛돌았을 수 있는 게이트')
   expect(report).toContain('첫 회 54900ms → 재확인 14800ms (27%)')
   expect(report).toContain('판정은 사람이 한다')
+})
+
+test('두 사유를 섞지 않는다 — 재확인이 더 느린 행에 "빨리 끝났다"고 적지 않는다', () => {
+  // 2차 실측에서 113% 행(재확인이 더 느림)에 "훨씬 빨리 끝났다"가 붙었다.
+  // 데이터에 reason이 있는데 화면이 안 쓴 결과다
+  const report = buildReport(
+    {
+      status: 'success',
+      attempts: 1,
+      rounds: [
+        {
+          ...round(1, 'aaa'),
+          recheckSuspects: [
+            { gate: 'build', firstMs: 2_075, recheckMs: 1_159, reason: 'clean-too-fast' as const },
+          ],
+        },
+      ],
+    },
+    '작업',
+  )
+  expect(report).toContain('청소를 명시했는데 첫 회가 2075ms에 끝났다')
+  expect(report).toContain('**처음부터** 일이 일어나지 않았을 수 있다')
+  // 비율 축의 설명문은 이 행에 붙지 않는다
+  expect(report).not.toContain('훨씬 빨리 끝났다')
 })
 
 test('실행 중 게이트가 사라지면 리포트가 그것을 세운다', () => {

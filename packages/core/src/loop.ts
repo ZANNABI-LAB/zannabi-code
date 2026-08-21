@@ -88,6 +88,13 @@ export interface LoopOptions {
   /** best-of-N의 조로 도는 실행이면 그 race의 이름. 증거에만 남고 루프 동작에는 영향이 없다 */
   raceId?: string
   /**
+   * 이 실행이 **차가운 작업 공간**에서 시작하는가(격리된 새 워크트리 등).
+   *
+   * 루프는 여전히 워크트리를 모른다 — 아는 것은 "첫 라운드의 첫 회가 콜드다"라는 사실뿐이고,
+   * 그것이 재확인의 비율 판정을 구조적으로 오탐시킨다. 호출자만 아는 사실이라 받는다.
+   */
+  coldWorkspace?: boolean
+  /**
    * 라운드 하나가 끝날 때마다 불린다 — 워크트리 격리가 라운드별 커밋을 남기는 자리다.
    *
    * 루프에 워크트리 개념을 넣지 않은 이유: 어댑터도 게이트도 리비전도 `cwd` 하나만 보므로,
@@ -415,6 +422,9 @@ async function runLoopWith(
       ok: plan.ok,
       ...(plan.usage === undefined ? {} : { usage: plan.usage }),
       ...(plan.sessionId === undefined ? {} : { sessionId: plan.sessionId }),
+      // 실제로 돈 모델. run-started는 실행 **전에** 쓰이므로 지정값밖에 모른다 —
+      // 이것을 안 싣으면 리포트는 아는데 저널은 모르는 상태가 된다
+      ...(plan.model === undefined ? {} : { model: plan.model }),
     })
     noteCost()
     if (!plan.ok)
@@ -590,6 +600,7 @@ async function runLoopWith(
       ok: exec.ok,
       ...(exec.usage === undefined ? {} : { usage: exec.usage }),
       ...(sessionId === undefined ? {} : { sessionId }),
+      ...(exec.model === undefined ? {} : { model: exec.model }),
     })
     noteCost()
 
@@ -674,7 +685,10 @@ async function runLoopWith(
         // 결과가 갈리지 않았더라도 재확인이 실제로 다시 돌았는지는 별개 질문이다.
         // 명령어 문자열을 보는 사전 휴리스틱은 실측에서 오탐만 냈다. 캐시로 스킵됐는지는
         // 실제로 얼마나 걸렸는지로 판단한다
-        const suspects = recheckSuspects(evidence, recheck.evidence)
+        const suspects = recheckSuspects(evidence, recheck.evidence, {
+          // 콜드 컴파일이 첫 회에만 얹히는 것은 라운드 1뿐이다
+          coldFirstRun: opts.coldWorkspace === true && attempt === 1,
+        })
         if (suspects.length > 0) {
           round.recheckSuspects = suspects
           for (const s of suspects)

@@ -47,8 +47,13 @@ export const RECHECK_MIN_MS = 5_000
  * 비율은 1에 가까워 정상으로 보인다.**
  *
  * clean·cleanTest를 명시한 빌드가 몇 초에 끝나는 것은 일이 일어나지 않았다는 직접 신호다.
+ *
+ * **2차 실측이 임계를 낮추게 했다.** 10초로 뒀더니 `api-auth`(첫 회 9769ms)가 걸렸는데,
+ * 재확인이 오히려 더 느렸다(11030ms) — 시험은 실제로 돌았다. 그 저장소의 정직한 게이트가
+ * 9.3~13.6초라 임계 10초가 **한가운데**에 있었다. 5초로 내리면 실측의 진짜 결함
+ * (2075ms)은 그대로 잡고 정직한 게이트는 놓아준다.
  */
-export const CLEAN_MIN_MS = 10_000
+export const CLEAN_MIN_MS = 5_000
 
 /** 청소를 명시하는 토큰. 도구 이름이 아니라 **의도**를 보는 것이라 래퍼 스크립트에도 걸린다 */
 const CLEAN_TOKENS = /\b(clean|cleanTest|cleanBuild|clean-test|distclean)\b/i
@@ -79,7 +84,23 @@ export interface RecheckSuspect {
  * 확정 판정은 하지 않는다. 데몬이 덥혀지거나 OS 페이지 캐시가 채워져 정직하게 빨라지는
  * 경우도 있기 때문이다. 그래서 실행 상태를 바꾸지 않고 숫자를 사람 앞에 놓기만 한다.
  */
-export function recheckSuspects(first: Evidence[], recheck: Evidence[]): RecheckSuspect[] {
+export interface RecheckSuspectOptions {
+  /**
+   * 이 라운드의 첫 회가 **차가운 상태**에서 돌았는가(격리된 새 워킹트리의 첫 라운드).
+   *
+   * 그러면 비율 축을 끈다. 2차 실측에서 워크트리의 첫 `build`가 콜드 컴파일을 포함해
+   * 52.6초였고 재확인은 시험만 19.7초였다 — 비율 0.37로 걸렸지만 **정직하게 빨라진 것**이다.
+   * 워크트리의 라운드 1 첫 회는 언제나 이 모양이므로 구조적 오탐이다.
+   * 절대 시간 축(clean-too-fast)은 그대로 둔다 — 그쪽은 콜드와 무관하게 유효하다.
+   */
+  coldFirstRun?: boolean
+}
+
+export function recheckSuspects(
+  first: Evidence[],
+  recheck: Evidence[],
+  opts: RecheckSuspectOptions = {},
+): RecheckSuspect[] {
   const suspects: RecheckSuspect[] = []
   for (const origin of first) {
     if (origin.outcome !== 'pass') continue
@@ -89,7 +110,11 @@ export function recheckSuspects(first: Evidence[], recheck: Evidence[]): Recheck
 
     // 축 1 — 재확인이 첫 회보다 크게 빨랐다. 짧은 명령은 프로세스 기동 편차가
     // 소요시간을 지배하므로 비율을 묻지 않는다
-    if (origin.durationMs >= RECHECK_MIN_MS && fastest < origin.durationMs * RECHECK_FAST_RATIO) {
+    if (
+      !opts.coldFirstRun &&
+      origin.durationMs >= RECHECK_MIN_MS &&
+      fastest < origin.durationMs * RECHECK_FAST_RATIO
+    ) {
       suspects.push({
         gate: origin.gate, firstMs: origin.durationMs, recheckMs: fastest, reason: 'ratio',
       })
@@ -99,8 +124,16 @@ export function recheckSuspects(first: Evidence[], recheck: Evidence[]): Recheck
     // 축 2 — 첫 회부터 헛돈 경우. 비율은 이것을 볼 수 없다(둘 다 빠르면 비율은 1에 가깝다).
     // 명령 문자열을 보지만 **사전 경고가 아니다**: 지웠던 그 검사는 명령만 보고 미리
     // 짚어 오탐만 냈고, 이것은 명령의 의도와 **실측된 소요시간을 함께** 본다.
-    // "clean을 붙였는데 실제로 2초에 끝났다"는 관측이지 추측이 아니다
-    if (CLEAN_TOKENS.test(origin.cmd) && origin.durationMs < CLEAN_MIN_MS)
+    // "clean을 붙였는데 실제로 2초에 끝났다"는 관측이지 추측이 아니다.
+    //
+    // **재확인이 더 느렸으면 짚지 않는다.** 두 번째가 첫 번째보다 오래 걸렸다는 것은
+    // 일이 실제로 일어났다는 증거다 — 캐시로 스킵됐다면 그럴 수 없다.
+    // 2차 실측의 오탐(9769ms → 11030ms)이 정확히 이 모양이었다
+    if (
+      CLEAN_TOKENS.test(origin.cmd) &&
+      origin.durationMs < CLEAN_MIN_MS &&
+      fastest < origin.durationMs
+    )
       suspects.push({
         gate: origin.gate, firstMs: origin.durationMs, recheckMs: fastest, reason: 'clean-too-fast',
       })

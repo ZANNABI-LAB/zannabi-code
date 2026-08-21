@@ -469,6 +469,8 @@ async function main() {
     profile: profileName,
     store,
     ...(resume === undefined ? {} : { resume }),
+    // 새 워크트리는 빌드 캐시가 비어 첫 회가 콜드다 — 재확인의 비율 판정이 구조적으로 오탐한다
+    ...(worktree === undefined ? {} : { coldWorkspace: true }),
     // 라운드마다 커밋한다 — 실패로 끝난 실행의 작업물도 사라지면 안 되고,
     // 라운드별 커밋은 "몇 번째 시도에서 무엇이 달라졌나"를 git 이력 자체로 말한다
     ...(worktree === undefined

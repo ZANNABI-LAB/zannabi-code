@@ -91,6 +91,7 @@ export async function runRace(opts: RaceOptions): Promise<RaceSummary | undefine
       store,
       sharedPlan: { text: plan.finalText, gates },
       raceId,
+      coldWorkspace: true, // 조마다 새 워크트리다
       approve: async () => ({ action: 'approve' }),
       log: message => opts.log(`[${arm.name}] ${message}`),
       afterRound: async (round: Round) => {

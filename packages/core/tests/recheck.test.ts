@@ -78,3 +78,34 @@ test('두 축이 겹치면 비율을 먼저 말한다 — 더 직접적인 신�
   expect(suspects).toHaveLength(1)
   expect(suspects[0].reason).toBe('ratio')
 })
+
+test('재확인이 더 느렸으면 청소 축으로 짚지 않는다 — 일이 일어난 것이다', () => {
+  // 2차 실측 오탐: api-auth 첫 회 9769ms → 재확인 11030ms(113%). 첫 회가 임계를 밑돌았지만
+  // 재확인이 더 느렸다 = 시험이 실제로 돌았다. 캐시로 스킵됐다면 그럴 수 없다
+  expect(
+    recheckSuspects(
+      [ev('api-auth', 4_000, 'pass', './gradlew :csms:cleanTest test')],
+      [ev('api-auth', 4_500, 'pass', './gradlew :csms:cleanTest test')],
+    ),
+  ).toEqual([])
+})
+
+test('정직한 게이트 소요시간대(9~13초)는 청소 축에 걸리지 않는다', () => {
+  // 임계가 10초였을 때 그 저장소의 정직한 게이트 한가운데에 있었다. 5초로 내렸다
+  expect(
+    recheckSuspects(
+      [ev('api-auth', 9_769, 'pass', './gradlew :csms:cleanTest test')],
+      [ev('api-auth', 9_000, 'pass', './gradlew :csms:cleanTest test')],
+    ),
+  ).toEqual([])
+})
+
+test('차가운 작업 공간의 첫 회는 비율 판정에서 뺀다', () => {
+  // 2차 실측 오탐: 워크트리 첫 라운드 build가 콜드 컴파일 포함 52.6s → 재확인 19.7s(37%).
+  // 정직하게 빨라진 것이고, 워크트리의 라운드 1은 언제나 이 모양이라 구조적 오탐이다
+  const first = [ev('build', 52_635, 'pass', './gradlew build')]
+  const again = [ev('build', 19_737, 'pass', './gradlew build')]
+  expect(recheckSuspects(first, again, { coldFirstRun: true })).toEqual([])
+  // 콜드가 아니면 그대로 짚는다 — 축 자체를 없앤 것이 아니다
+  expect(recheckSuspects(first, again)).toHaveLength(1)
+})

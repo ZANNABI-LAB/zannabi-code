@@ -115,16 +115,28 @@ export function buildReport(
   const suspects = last?.recheckSuspects ?? []
   if (suspects.length > 0) {
     lines.push(``, `## 재확인이 헛돌았을 수 있는 게이트`, ``)
+    // 사유를 섞지 않는다. 실측에서 재확인이 **더 느렸던** 행에
+    // "훨씬 빨리 끝났다"는 사실과 반대인 문장이 붙었다 — 데이터에 reason이 있는데 화면이 안 썼다
     for (const s of suspects)
       lines.push(
-        `- ⏱️ \`${s.gate}\` 첫 회 ${s.firstMs}ms → 재확인 ${s.recheckMs}ms` +
-          ` (${Math.round((s.recheckMs / s.firstMs) * 100)}%)`,
+        s.reason === 'clean-too-fast'
+          ? `- ⏱️ \`${s.gate}\` 청소를 명시했는데 첫 회가 ${s.firstMs}ms에 끝났다` +
+            ` (재확인 ${s.recheckMs}ms) — **처음부터** 일이 일어나지 않았을 수 있다`
+          : `- ⏱️ \`${s.gate}\` 첫 회 ${s.firstMs}ms → 재확인 ${s.recheckMs}ms` +
+            ` (${Math.round((s.recheckMs / s.firstMs) * 100)}%) — **두 번째**가 헛돌았을 수 있다`,
       )
-    lines.push(
-      ``,
-      `> 같은 리비전에 같은 명령인데 훨씬 빨리 끝났다. 빌드 캐시로 스킵됐다면 이 재확인은` +
-        ` 아무것도 확인하지 않은 것이다 — 데몬이 덥혀져 정직하게 빨라졌을 수도 있으니 판정은 사람이 한다.`,
-    )
+    const kinds = new Set(suspects.map(s => s.reason))
+    lines.push(``)
+    if (kinds.has('ratio'))
+      lines.push(
+        `> **비율**: 같은 리비전에 같은 명령인데 훨씬 빨리 끝났다. 빌드 캐시로 스킵됐다면 그 재확인은` +
+          ` 아무것도 확인하지 않은 것이다 — 데몬이 덥혀져 정직하게 빨라졌을 수도 있으니 판정은 사람이 한다.`,
+      )
+    if (kinds.has('clean-too-fast'))
+      lines.push(
+        `> **절대 시간**: 청소를 명시한 명령이 몇 초에 끝났다. 비율은 이것을 볼 수 없다 —` +
+          ` 첫 회부터 헛돌면 두 회 모두 빠르고 비율은 1에 가깝다. 대상 저장소의 빌드 캐시 설정을 보라.`,
+      )
   }
 
   // 밀려난 제안을 남긴다. 이게 없으면 "에이전트가 러너의 결함을 짚었는데 러너가 삼킨"

@@ -56,11 +56,11 @@ append-only JSONL. **한 파일이 세 가지를 겸한다** — tail하면 실�
 |---|---|---|
 | `run-started` | 실행 시작 | `contractVersion` `runId` `intent` `cwd` `budget` `runtime?` `profile?` `maxCostUsd?` `raceId?` |
 | `run-resumed` | 중단된 실행을 이어받음 | `fromRound` `completedRounds` `runtime?` |
-| `plan-finished` | 계획 턴 종료 | `ok` `usage?` `sessionId?` |
+| `plan-finished` | 계획 턴 종료 | `ok` `usage?` `sessionId?` `model?` |
 | `approval-requested` | 사람의 승인 대기 | `gates` `warnings` `dropped?` |
 | `approval-resolved` | 승인/거부됨 | `action` `reason?` |
 | `round-started` | 라운드 시작 | `round` |
-| `exec-finished` | 실행 턴 종료(게이트 전) | `round` `ok` `usage?` `sessionId?` |
+| `exec-finished` | 실행 턴 종료(게이트 전) | `round` `ok` `usage?` `sessionId?` `model?` |
 | `gate-started` | 게이트 하나 시작 | `round` `phase`(verify/recheck) `gate` `cmd` |
 | `gate-result` | 게이트 하나 종료 | `round` `phase`(verify/recheck) `evidence` |
 | `round-finished` | 라운드 종료 | `round` `revision` `repeatOf?` `allPass` |
@@ -83,6 +83,12 @@ append-only JSONL. **한 파일이 세 가지를 겸한다** — tail하면 실�
 - **`gate-started`가 따로 있는 이유**: 결과만으로는 **지금 무엇이 도는 중인지** 알 수 없다.
   15분 타임아웃에 걸린 게이트가 어디서 멈췄는지를 저널만 보고 말할 수 없으면 실시간 축이
   뚫린 것이다.
+- **`model`이 턴 이벤트에 있는 이유**: `run-started`의 `runtime`은 실행 **전에** 쓰이므로
+  우리가 지정한 값밖에 모른다. 모델은 `--model` 말고도 환경변수·프로필·CLI 기본값으로
+  정해지고, 실제로 무엇이 돌았는지는 첫 턴이 끝나야 안다. 이것을 싣지 않으면
+  **리포트는 아는데 저널은 모르는 상태**가 된다 — 실측에서 정확히 그 일이 있었고,
+  저널만 읽는 소비자에게는 조합 비교 축이 통째로 비어 보였다.
+  소비자는 `model`을 만나면 `run-started`의 `runtime`을 그 값으로 고쳐 읽어야 한다.
 - **`raceId`가 있는 이유**: best-of-N의 조 셋이 없으면 서로 무관한 실행 셋으로 보인다.
   같은 비교에 속했다는 사실이 사라지면 조합별 실적을 모으는 측정이 성립하지 않는다.
 - **`cost-updated`가 따로 있는 이유**: 사용량 이벤트를 합치면 나오는 값이지만, 소비자가

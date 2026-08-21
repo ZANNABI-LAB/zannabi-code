@@ -156,7 +156,19 @@ export const RoundSchema = z.object({
    * "재확인했다"는 말이 실제로 무엇을 확인한 것인지 사람이 따져 볼 근거를 남긴다.
    */
   recheckSuspects: z
-    .array(z.object({ gate: z.string(), firstMs: z.number(), recheckMs: z.number() }))
+    .array(
+      z.object({
+        gate: z.string(),
+        firstMs: z.number(),
+        recheckMs: z.number(),
+        /**
+         * 무엇이 이 정황을 만들었나. 이 필드가 없으면 리포트가 두 사유를 한 문장으로
+         * 섞고, 실측에서 재확인이 **더 느렸던** 행에 "훨씬 빨리 끝났다"는
+         * 사실과 반대인 설명이 붙었다.
+         */
+        reason: z.enum(['ratio', 'clean-too-fast']).default('ratio'),
+      }),
+    )
     .optional(),
 })
 export type Round = z.infer<typeof RoundSchema>

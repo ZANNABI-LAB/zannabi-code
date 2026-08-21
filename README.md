@@ -6,7 +6,7 @@
 
 [![license](https://img.shields.io/badge/license-Apache--2.0-blue)](LICENSE)
 [![runtime](https://img.shields.io/badge/runtime-Bun-black)](https://bun.sh)
-![tests](https://img.shields.io/badge/tests-269%20passing-brightgreen)
+![tests](https://img.shields.io/badge/tests-275%20passing-brightgreen)
 
 > **Shake the branch before you cross.** — 잔나비는 건너기 전에 가지를 흔들어본다
 
@@ -329,6 +329,11 @@ zannabi run "결제 API에 재시도" --worktree
 시도에도 이어받을 것이 있다 — 라운드별 커밋은 "몇 번째 시도에서 무엇이 달라졌나"를
 git 이력 자체로 말한다. 바뀐 것이 없는 라운드는 빈 커밋을 만들지 않는다.
 
+**빌드 캐시가 없는 첫 라운드는 느리다.** 실측에서 Gradle 프로젝트의 콜드 워크트리 빌드가
+52.6초였다(의존성 캐시 `~/.gradle`는 공유되고 컴파일만 차갑다). 게이트 타임아웃이 15분이면
+그 6%다. 재확인의 비율 감지는 이 첫 회를 판정에서 빼는데, 콜드 컴파일을 포함한 첫 회와
+시험만 도는 재확인을 비교하면 **구조적으로 오탐**하기 때문이다.
+
 **딸려오지 않는 것이 있다.** 워크트리는 `HEAD`에서 갈라지므로 원본의 **미커밋 변경은
 포함되지 않는다.** 그 사실을 실행 시작 시 파일 수와 함께 알린다 — 모르고 돌리면
 "왜 내 수정이 반영 안 됐지"를 나중에 겪는다.
@@ -460,7 +465,7 @@ core 변경분은 두 어댑터가 공유하는 프로세스 구동 배관을 �
 ## 개발
 
 ```bash
-bun test        # 269개
+bun test        # 275개
 bun run typecheck
 ```
 
