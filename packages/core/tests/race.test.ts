@@ -39,9 +39,11 @@ test('집계의 비용 합은 개별 조의 합과 같다', () => {
   // best-of-N이 지켜야 할 것. 집계가 개별 실행과 다른 말을 하기 시작하면
   // 병렬은 측정 도구가 아니라 측정을 망치는 장치가 된다
   const arms = [outcome('a', 'success', 1, 1.25), outcome('b', 'success', 2, 0.5)]
-  const summary = summarizeRace('r1', '작업', arms)
+  // 공유 계획 턴의 비용도 총액에 든다 — 조가 아니라 race가 한 번 내지만 쓴 돈은 쓴 돈이다
+  const summary = summarizeRace('r1', '작업', arms, 0.4)
 
-  expect(summary.totalCostUsd).toBeCloseTo(1.75, 6)
+  expect(summary.planCostUsd).toBe(0.4)
+  expect(summary.totalCostUsd).toBeCloseTo(2.15, 6)
   expect(summary.costCoverage).toBe('full')
   expect(summary.passed).toHaveLength(2)
   expect(summary.failed).toHaveLength(0)
@@ -51,8 +53,8 @@ test('일부만 비용을 보고하면 합계가 partial이라고 말한다', ()
   const summary = summarizeRace('r2', '작업', [
     outcome('claude', 'success', 1, 2.0),
     outcome('codex', 'success', 1), // codex는 비용을 주지 않는다
-  ])
-  expect(summary.totalCostUsd).toBe(2.0)
+  ], 0.5)
+  expect(summary.totalCostUsd).toBe(2.5)
   // 개별 실행에서 지키던 규칙이 집계에서 무너지면, 합계가 가장 거짓말하기 쉬운 자리가 된다
   expect(summary.costCoverage).toBe('partial')
 })
@@ -146,4 +148,14 @@ test('동시 실행 수를 넘기지 않는다', async () => {
   expect(peak).toBeLessThanOrEqual(2)
   // 순서는 보존된다 — 결과를 조와 짝지어야 하므로
   expect(results).toEqual([0, 1, 2, 3, 4, 5])
+})
+
+test('계획 턴이 비용을 보고하지 않으면 총액이 그 사실을 말한다', () => {
+  // 계획 비용을 빼먹으면 집계가 실제 지출보다 항상 적다 — 그것이 이 축의 결함이었다
+  const arms = [outcome('a', 'success', 1, 1.0), outcome('b', 'success', 1, 1.0)]
+  const summary = summarizeRace('r9', '작업', arms)
+  expect(summary.totalCostUsd).toBe(2.0)
+  expect(summary.planCostUsd).toBeUndefined()
+  // 조는 전부 보고했지만 계획 턴이 침묵했으므로 이 총액은 지출의 일부다
+  expect(summary.costCoverage).toBe('partial')
 })

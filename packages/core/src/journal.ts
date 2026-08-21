@@ -136,6 +136,20 @@ export const JournalEventSchema = z.discriminatedUnion('type', [
     usage: UsageSchema.optional(),
     sessionId: z.string().optional(),
   }),
+  /**
+   * 게이트 하나가 시작됐다.
+   *
+   * 결과만으로는 **지금 무엇이 도는 중인지** 알 수 없다. 15분 타임아웃에 걸린 게이트가
+   * 어디서 멈췄는지를 저널만 보고 말할 수 없으면, 그것이 실시간 축의 구멍이다.
+   */
+  z.object({
+    ...base,
+    type: z.literal('gate-started'),
+    round: z.number().int().positive(),
+    phase: z.enum(['verify', 'recheck']),
+    gate: z.string(),
+    cmd: z.string(),
+  }),
   z.object({
     ...base,
     type: z.literal('gate-result'),

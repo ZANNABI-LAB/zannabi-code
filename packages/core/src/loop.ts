@@ -292,6 +292,22 @@ function degradeOnEvidenceLoss(result: LoopResult, losses: EvidenceLoss[]): Loop
  * 성공으로 끝난 라운드가 마지막이면 실행이 끝났을 것이므로 여기 오는 마지막 라운드는
  * 대개 실패한 라운드다. 그래도 확인하고 만든다 — 없는 실패를 프롬프트에 싣지 않는다.
  */
+/**
+ * 런타임이 실제로 보고한 모델로 라벨을 고친다.
+ *
+ * 우리가 넘긴 라벨은 **지정한 것**이지 실제로 돈 것이 아니다. 모델은 `--model` 말고도
+ * 환경변수·프로필·CLI 기본값으로 정해지고, 실측에서 `ANTHROPIC_MODEL=claude-opus-5`로
+ * 띄운 실행이 `claude:default`로 기록됐다. 조합별 비교가 이 프로젝트 측정의 축인데
+ * 그 축이 비어서 남은 것이다.
+ *
+ * 지정한 값과 보고된 값이 다르면 **보고된 쪽을 쓴다** — 실제로 돈 것이 사실이다.
+ */
+function withActualModel(label: string | undefined, reported?: string): string | undefined {
+  if (label === undefined || reported === undefined) return label
+  const agent = label.split(':')[0]
+  return `${agent}:${reported}`
+}
+
 function resumeFeedback(rounds: Round[]): string | undefined {
   const last = rounds[rounds.length - 1]
   if (!last || last.evidence.every(e => e.outcome === 'pass')) return undefined
@@ -305,7 +321,9 @@ async function runLoopWith(
 ): Promise<LoopResult> {
   const execAdapter = opts.execAdapter ?? opts.adapter
   const split = execAdapter !== opts.adapter
-  const runtime = opts.runtime
+  // 복사해서 쓴다 — 아래에서 실제 보고된 모델로 고치는데, 호출자가 넘긴 객체를
+  // 몰래 바꾸면 같은 객체를 다른 데 쓰는 호출자가 영문 모를 값을 보게 된다
+  const runtime = opts.runtime ? { ...opts.runtime } : undefined
 
   const resumed = opts.resume
   // 저널의 첫 줄. 재개는 이 줄에서 "무엇을 하려던 실행인가"를 읽는다.
@@ -404,6 +422,7 @@ async function runLoopWith(
     opts.store.writePlan(plan.finalText)
     planText = plan.finalText
     planSessionId = plan.sessionId
+    if (runtime) runtime.plan = withActualModel(runtime.plan, plan.model) ?? runtime.plan
   }
 
   /** 상한에 닿았으면 판정을 돌려준다. 상한이 없거나 여유가 있으면 undefined */
@@ -561,6 +580,8 @@ async function runLoopWith(
       for (const e of exec.events) opts.store.appendTranscript(e)
     }
 
+    if (runtime) runtime.exec = withActualModel(runtime.exec, exec.model) ?? runtime.exec
+
     // 게이트를 돌리기 전에 적는다 — 검증 도중 죽어도 실행 턴의 지출과 세션은 이미 생겼고,
     // 라운드 단위로만 남기면 재개할 때 그 둘이 사라져 상한이 거짓말을 한다
     opts.store.appendJournal({
@@ -586,6 +607,10 @@ async function runLoopWith(
     opts.log('검증 게이트 실행 중')
     const evidence: Evidence[] = []
     for (const gate of gates) {
+      // 결과 전에 시작을 적는다 — 30분짜리 게이트가 도는 동안 밖에서 볼 수 있는 것이 이것뿐이다
+      opts.store.appendJournal({
+        type: 'gate-started', round: attempt, phase: 'verify', gate: gate.name, cmd: gate.cmd,
+      })
       const one = await runGate(gate, { cwd: opts.cwd, revision })
       evidence.push(one)
       // 게이트 하나가 끝날 때마다 적는다. 라운드 끝에 몰아 쓰면 30분짜리 게이트를 도는 동안
@@ -632,6 +657,9 @@ async function runLoopWith(
       if (verifyRepeat > 1) {
         opts.log(`통과 재확인 중 (총 ${verifyRepeat}회)`)
         const recheck = await recheckGates(gates, verifyRepeat, async gate => {
+          opts.store.appendJournal({
+            type: 'gate-started', round: attempt, phase: 'recheck', gate: gate.name, cmd: gate.cmd,
+          })
           const one = await runGate(gate, { cwd: opts.cwd, revision })
           opts.store.appendJournal({
             type: 'gate-result',
@@ -651,8 +679,11 @@ async function runLoopWith(
           round.recheckSuspects = suspects
           for (const s of suspects)
             opts.log(
-              `재확인 경고 [${s.gate}] 첫 회 ${s.firstMs}ms → 재확인 ${s.recheckMs}ms` +
-                ' — 두 번째 실행이 같은 일을 하지 않았을 수 있습니다',
+              s.reason === 'clean-too-fast'
+                ? `재확인 경고 [${s.gate}] 청소를 명시한 명령이 첫 회부터 ${s.firstMs}ms에 끝났습니다` +
+                  ' — 시험이 한 번도 돌지 않은 초록일 수 있습니다(대상 저장소의 빌드 캐시를 보세요)'
+                : `재확인 경고 [${s.gate}] 첫 회 ${s.firstMs}ms → 재확인 ${s.recheckMs}ms` +
+                  ' — 두 번째 실행이 같은 일을 하지 않았을 수 있습니다',
             )
         }
         opts.store.writeEvidence(rounds)

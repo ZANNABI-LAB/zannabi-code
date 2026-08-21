@@ -41,6 +41,14 @@ export interface RaceSummary {
   raceId: string
   intent: string
   arms: ArmOutcome[]
+  /**
+   * 조들이 공유한 계획 턴의 비용. 조가 아니라 race 전체가 한 번 낸다.
+   *
+   * **이것을 빼먹으면 집계가 실제 지출보다 항상 적다.** 조별 비용은 실행 턴만 세는 것이
+   * 옳지만(조끼리 비교되는 것은 그것뿐이다), 총액은 실제로 쓴 돈이어야 한다 —
+   * "집계 = 개별 합"이라는 이 기능의 완료 기준이 그 지점에서 깨진다.
+   */
+  planCostUsd?: number
   /** 게이트를 전부 통과한 조 */
   passed: ArmOutcome[]
   /** 통과하지 못한 조. 이유는 각자의 `result.status`에 있다 */
@@ -115,24 +123,33 @@ function pickWinner(passed: ArmOutcome[]): { winner?: ArmOutcome; verdict: strin
  * 완료 기준이 "판정·비용 집계 = 개별 합"인 이유가 여기 있다 — 집계가 개별 실행과
  * 다른 말을 하기 시작하면 병렬은 측정 도구가 아니라 측정을 망치는 장치가 된다.
  */
-export function summarizeRace(raceId: string, intent: string, arms: ArmOutcome[]): RaceSummary {
+export function summarizeRace(
+  raceId: string,
+  intent: string,
+  arms: ArmOutcome[],
+  /** 공유된 계획 턴이 보고한 비용. 보고하지 않는 런타임이면 없다 */
+  planCostUsd?: number,
+): RaceSummary {
   const passed = arms.filter(a => a.result.status === 'success')
   const failed = arms.filter(a => a.result.status !== 'success')
 
   // 돈을 쓴 조 중 몇이 보고했는지로 커버리지를 정한다. 개별 실행에서 쓰는 규칙 그대로다
   const ran = arms.filter(a => a.result.usage !== undefined)
   const reported = ran.filter(a => armCost(a) !== undefined)
+  // 계획 턴도 돈을 쓴 축이다. 조가 아니라 race가 한 번 내지만, 안 세면 총액이 거짓이 된다
+  const planReported = planCostUsd !== undefined
   const costCoverage: CostCoverage =
     ran.length === 0
       ? 'not-run'
-      : reported.length === 0
+      : reported.length === 0 && !planReported
         ? 'none'
-        : reported.length === ran.length
+        : reported.length === ran.length && planReported
           ? 'full'
           : 'partial'
   // 아무도 보고하지 않았으면 0이 아니라 없는 것이다 — 0으로 적으면 공짜라는 거짓이 된다
+  const armTotal = reported.reduce((sum, a) => sum + (armCost(a) ?? 0), 0)
   const totalCostUsd =
-    reported.length === 0 ? undefined : reported.reduce((sum, a) => sum + (armCost(a) ?? 0), 0)
+    reported.length === 0 && !planReported ? undefined : armTotal + (planCostUsd ?? 0)
 
   const { winner, verdict } = pickWinner(passed)
   return {
@@ -141,6 +158,7 @@ export function summarizeRace(raceId: string, intent: string, arms: ArmOutcome[]
     arms,
     passed,
     failed,
+    ...(planCostUsd === undefined ? {} : { planCostUsd }),
     ...(totalCostUsd === undefined ? {} : { totalCostUsd }),
     costCoverage,
     ...(winner === undefined ? {} : { winner }),

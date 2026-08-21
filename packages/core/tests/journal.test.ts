@@ -58,6 +58,7 @@ test('성공한 실행의 저널이 어휘 순서대로 쌓인다', async () => 
     'approval-resolved',
     'round-started',
     'exec-finished',
+    'gate-started',
     'gate-result',
     'round-finished',
     'run-finished',

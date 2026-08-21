@@ -61,6 +61,7 @@ append-only JSONL. **한 파일이 세 가지를 겸한다** — tail하면 실�
 | `approval-resolved` | 승인/거부됨 | `action` `reason?` |
 | `round-started` | 라운드 시작 | `round` |
 | `exec-finished` | 실행 턴 종료(게이트 전) | `round` `ok` `usage?` `sessionId?` |
+| `gate-started` | 게이트 하나 시작 | `round` `phase`(verify/recheck) `gate` `cmd` |
 | `gate-result` | 게이트 하나 종료 | `round` `phase`(verify/recheck) `evidence` |
 | `round-finished` | 라운드 종료 | `round` `revision` `repeatOf?` `allPass` |
 | `cost-updated` | 누적 지출 갱신 | `plan` `exec` `spentUsd?` `coverage?` |
@@ -79,6 +80,9 @@ append-only JSONL. **한 파일이 세 가지를 겸한다** — tail하면 실�
   한 번에 돈 실행과 세 번 끊겼다 이어 돈 실행이 똑같아 보인다.
 - **`gate-result`가 게이트마다 나오는 이유**: 라운드 끝에 몰아 쓰면 30분짜리 게이트를 도는
   동안 밖에서는 러너가 멈춘 것과 구분되지 않는다.
+- **`gate-started`가 따로 있는 이유**: 결과만으로는 **지금 무엇이 도는 중인지** 알 수 없다.
+  15분 타임아웃에 걸린 게이트가 어디서 멈췄는지를 저널만 보고 말할 수 없으면 실시간 축이
+  뚫린 것이다.
 - **`raceId`가 있는 이유**: best-of-N의 조 셋이 없으면 서로 무관한 실행 셋으로 보인다.
   같은 비교에 속했다는 사실이 사라지면 조합별 실적을 모으는 측정이 성립하지 않는다.
 - **`cost-updated`가 따로 있는 이유**: 사용량 이벤트를 합치면 나오는 값이지만, 소비자가
@@ -94,7 +98,13 @@ append-only JSONL. **한 파일이 세 가지를 겸한다** — tail하면 실�
 4. **끝나지 않은 라운드를 완료로 세지 않는다.** `round-started`는 있는데 `round-finished`가
    없으면 그 라운드는 중단된 것이다. 완료로 치면 돌지 않은 게이트가 판정에서 빠진다.
 5. **이벤트가 끊긴 것과 러너가 죽은 것은 다르다.** 저널은 프로세스의 생사를 모른다.
-   지금도 도는 중일 수 있다.
+   지금도 도는 중일 수 있다. 판단하려면 **마지막 이벤트로부터의 무음 경과**를 보라 —
+   그것이 저널이 줄 수 있는 유일한 단서다.
+6. **끝나지 않은 라운드가 있다는 것은 "끊겼다"는 뜻이 아니다.** `round-started` 이후
+   `round-finished` 이전은 **정상 실행의 대부분**이다(실행 턴 + 게이트 검증 전체).
+   이 상태를 "중단"으로 읽으면 살아 있는 실행이 전부 죽은 것으로 보인다 —
+   이 러너의 `status`가 실제로 그 버그를 냈다. 진행 중임을 말하되, 그 라운드의 게이트
+   결과는 **판정의 근거로 세지 않는다**.
 
 `zannabi status`가 이 규칙들의 레퍼런스 구현이다 — **저널만 읽고 다른 파일은 열지 않는다.**
 
@@ -121,12 +131,21 @@ zannabi manifest   # JSON을 stdout으로
 | `isolation` | 실행끼리 워킹트리를 격리할 수 있는가 |
 | `bestOfN` | 같은 작업을 여러 조합으로 돌려 고르는가 |
 
-값은 `full` · `partial` · `none`.
+값은 `full` · `partial` · `none`. **`full`은 예외가 없다는 뜻이다** — 조건부로 되는 것은
+전부 `partial`이고, 러너는 그 조건을 밝혀야 한다.
 
-**`partial`이 필요한 이유는 비용이다.** zannabi-code는 비용을 보고할 **수** 있지만 실행
-런타임에 따라 갈린다(claude는 주고 codex는 안 준다). 이것을 `full`로 신고하면 화면이
-`$0.00`을 그리게 되고, 그 순간 계약이 거짓말을 옮기는 통로가 된다. **신고는 자랑이 아니라
-계약이다** — 못 하는 것을 신고하면 소비자가 없는 화면을 그리려다 깨진다.
+zannabi-code가 지금 `partial`로 신고하는 넷과 그 조건:
+
+| 축 | 조건 |
+|---|---|
+| `evidence` | 증거가 대상 저장소 안에 있어 작업하는 에이전트가 지울 수 있다. 손실을 감지해 판정을 강등하지만 그것은 사후 복구지 경계가 아니다 |
+| `revisionBinding` | git 저장소가 아니면 결박할 리비전이 없다 |
+| `cost` | claude는 비용을 주고 codex는 주지 않는다 |
+| `resume` | 워크트리로 돌던 실행을 재개하면 격리가 이어지지 않는다 |
+
+**신고는 자랑이 아니라 계약이다.** 이 러너도 처음에는 비용만 `partial`로 적고 나머지를
+`full`로 신고했다가 외부 리뷰에 잡혔다 — 못 하는 것을 신고하면 소비자가 없는 화면을
+그리려다 깨진다.
 
 실행별로 비용이 실제로 얼마를 봤는지는 `report.md`와 `cost-updated`의
 `coverage`(`full`/`partial`/`none`/`not-run`)가 말한다.

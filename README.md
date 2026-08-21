@@ -6,7 +6,7 @@
 
 [![license](https://img.shields.io/badge/license-Apache--2.0-blue)](LICENSE)
 [![runtime](https://img.shields.io/badge/runtime-Bun-black)](https://bun.sh)
-![tests](https://img.shields.io/badge/tests-264%20passing-brightgreen)
+![tests](https://img.shields.io/badge/tests-269%20passing-brightgreen)
 
 > **Shake the branch before you cross.** — 잔나비는 건너기 전에 가지를 흔들어본다
 
@@ -222,7 +222,12 @@ zannabi run "..." --plan-agent claude --exec-agent codex
 > 확인하지 못한 채 "재확인했다"고 말한다. 실전에서 정확히 이 일이 있었고, 게이트 명령에
 > `cleanTest`를 직접 넣어 해결했다.
 >
-> 그래서 **실행 후 소요시간으로 본다.** 같은 리비전에 같은 명령인데 재확인이 첫 회의 40%
+> 그래서 **실행 후 소요시간으로 본다.** 축이 둘이다 — ① 재확인이 첫 회의 40% 미만으로
+> 끝났는가(두 번째가 헛돌았다), ② **청소를 명시한 명령이 첫 회부터 몇 초에 끝났는가**
+> (처음부터 헛돌았다). ②가 필요한 이유는 실측이 알려줬다: `:csms:cleanTest build`가
+> 2.1초/1.2초로 끝나 비율이 0.56이었는데, 시험이 **한 번도 돈 적 없는 초록**이었다.
+> 비율은 "두 번째가 더 빨랐는가"만 묻기 때문에 첫 회부터 헛돌면 아무것도 보지 못한다.
+> 같은 리비전에 같은 명령인데 재확인이 첫 회의 40%
 > 미만으로 끝났으면 `report.md`에 숫자와 함께 남긴다(실측 사례가 54.9s → 14.8s = 0.27이었다).
 > 데몬이 덥혀져 정직하게 빨라지는 경우도 있어 통과를 무르지는 않는다 — 판정은 사람이 한다.
 > 게이트 6개를 돌린 실측에서 정직하게 다시 돈 재확인의 최저 비율은 0.69였고, 오탐은 0이었다.
@@ -360,6 +365,10 @@ zannabi status 결제-API            # 이름 일부로 하나를 골라 상세
 zannabi resume 결제-API            # 중단된 지점의 다음 라운드부터
 ```
 
+`status`는 실행 중에도 지금 어디까지 왔는지 말한다 — 완료된 게이트, **지금 도는 게이트**,
+마지막 이벤트로부터의 무음 경과까지. 다만 **러너가 죽었는지 지금도 도는 중인지는 말하지 않는다.**
+프로세스의 생사는 저널의 관할이 아니라서, 무음 경과라는 단서만 주고 판단은 사람이 한다.
+
 `status`는 **저널만 읽는다.** `report.md`도 `evidence.json`도 열지 않으므로, 저널 하나에서
 나오지 않는 정보는 화면에 뜰 수 없다 — 이 계약을 소비할 다른 도구가 같은 것을 할 수 있는지가
 그 자리에서 판정된다(테스트가 파생 파일을 전부 빈 파일로 덮고 확인한다).
@@ -451,7 +460,7 @@ core 변경분은 두 어댑터가 공유하는 프로세스 구동 배관을 �
 ## 개발
 
 ```bash
-bun test        # 264개
+bun test        # 269개
 bun run typecheck
 ```
 

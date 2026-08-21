@@ -65,6 +65,15 @@ export interface AgentResult {
   errorReason?: string
   /** 이 턴이 쓴 자원. 어댑터가 보고하지 않으면 없다 */
   usage?: Usage
+  /**
+   * 런타임이 **실제로 쓴** 모델. 우리가 지정한 것이 아니라 그쪽이 보고한 값이다.
+   *
+   * 왜 필요한가: 모델은 `--model` 말고도 정해진다(환경변수·프로필·CLI 기본값).
+   * 우리가 넘긴 값만 기록하면 `ANTHROPIC_MODEL=claude-opus-5`로 띄운 실행이
+   * `claude:default`로 남는다 — 실측에서 정확히 그 일이 있었고,
+   * **조합별 비교가 측정의 축인데 그 축이 비어서 기록됐다.**
+   */
+  model?: string
 }
 
 /** 어댑터가 구동 가능한 상태인지 — 인증 만료처럼 실행 전에 알 수 있는 것만 본다 */
@@ -82,6 +91,8 @@ export interface AgentAdapter {
 
 /** 어댑터가 자기 CLI의 출력 형식을 해석해 내놓는 중립 형태 */
 export interface ParsedAgentStream {
+  /** 런타임이 스스로 보고한 모델. 어댑터가 알아내지 못하면 없다 */
+  model?: string
   sessionId?: string
   finalText: string
   ok: boolean
@@ -155,7 +166,12 @@ export function toAgentResult(
 ): AgentResult {
   // usage는 성패와 무관하게 싣는다 — 실패한 턴도 청구되고, 실패 비용이야말로
   // 조합을 비교할 때 알아야 하는 값이다
-  const base = { sessionId: parsed.sessionId, finalText: parsed.finalText, usage: parsed.usage }
+  const base = {
+    sessionId: parsed.sessionId,
+    finalText: parsed.finalText,
+    usage: parsed.usage,
+    model: parsed.model,
+  }
 
   if (outcome.spawnError)
     return { ...base, ok: false, events: parsed.events, errorReason: `${label} 실행 실패: ${outcome.spawnError}` }

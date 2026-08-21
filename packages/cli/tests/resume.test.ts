@@ -42,9 +42,11 @@ test('kill -9로 죽인 실행을 이어서 돌면 성공으로 끝난다', asyn
   const runId = listRuns(cwd)[0]
   expect(runId).toBeDefined()
 
-  // 1) 죽은 직후: 상태가 재구성되고, 중단된 라운드는 완료로 세지 않는다
+  // 1) 죽은 직후: 상태가 재구성되고, 중단된 라운드는 완료로 세지 않는다.
+  //    phase는 마지막으로 관측된 단계 그대로다 — 저널은 프로세스가 죽었는지 모르므로
+  //    "끊김"이라 단정하지 않는다. 사람은 무음 경과로 판단한다
   const dead = replay(readJournal(join(cwd, '.zannabi', 'runs', runId)))
-  expect(dead.phase).toBe('interrupted')
+  expect(dead.phase).toBe('verifying')
   expect(dead.rounds).toHaveLength(0)
   expect(dead.partialRound).toBe(1)
 

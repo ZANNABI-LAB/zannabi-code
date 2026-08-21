@@ -58,6 +58,16 @@ export interface ReplayState {
    * 판정에서 조용히 빠진다 — 거짓 초록의 가장 값싼 경로다.
    */
   partialRound?: number
+  /**
+   * 진행 중인 라운드에서 **지금까지 나온** 게이트 결과.
+   *
+   * 판정의 근거는 아니다(라운드가 안 끝났다). 그러나 실행 중에 밖에서 보는 사람에게는
+   * 이것이 전부다 — 저널에 `build pass`가 이미 있는데 화면이 "중단됨" 한 줄만 보여주면,
+   * 데이터를 갖고도 안 쓰는 것이다.
+   */
+  partialEvidence?: Round['evidence']
+  /** 지금 돌고 있는 게이트 이름. 끝나면 지워진다 */
+  runningGate?: string
 
   usage: { plan: Usage; exec: Usage }
   spentUsd?: number
@@ -149,11 +159,16 @@ export function replay(events: JournalEvent[]): ReplayState {
         if (event.sessionId !== undefined) state.sessionId = event.sessionId
         state.phase = 'verifying'
         break
+      case 'gate-started':
+        state.runningGate = event.gate
+        state.phase = 'verifying'
+        break
       case 'gate-result':
         // 라운드 시작 줄이 유실된 저널도 읽는다 — 없는 것을 이유로 증거를 버리지 않는다
         if (!open) open = { round: event.round, evidence: [], recheck: [] }
         if (event.phase === 'recheck') open.recheck.push(event.evidence)
         else open.evidence.push(event.evidence)
+        state.runningGate = undefined
         break
       case 'round-finished': {
         const evidence = open?.evidence ?? []
@@ -167,6 +182,7 @@ export function replay(events: JournalEvent[]): ReplayState {
           allPass: event.allPass,
         })
         open = undefined
+        state.runningGate = undefined
         break
       }
       case 'cost-updated':
@@ -188,11 +204,16 @@ export function replay(events: JournalEvent[]): ReplayState {
     }
   }
 
-  // 끝나지 않았는데 열린 라운드가 남아 있으면 그 라운드는 중단된 것이다.
-  // 끝난 실행에 열린 라운드가 남는 것은 정상이다 — 게이트가 깨져 중간에 반환한 경로가 그렇다
+  // 끝나지 않은 라운드가 남아 있다는 것은 **재개가 그 라운드부터 다시 돈다**는 뜻일 뿐,
+  // 실행이 끊겼다는 뜻이 아니다. 예전에는 여기서 phase를 interrupted로 덮었는데,
+  // open은 round-started~round-finished 사이 전체(실행 턴 + 게이트 검증 전체)라서
+  // **정상 실행 중에는 언제나 참이었다.** 그래서 살아 있는 실행이 늘 "끊김"으로 보이고
+  // 재개를 권유받았다 — status가 계약의 핵심 주장을 실행 중에만 어겼다.
+  // 저널은 프로세스의 생사를 모른다. 아는 것(어디까지 왔는가)만 말하고,
+  // 끊겼는지 여부는 마지막 이벤트로부터의 무음 경과라는 별도 축으로 판단한다.
   if (state.phase !== 'finished' && open) {
     state.partialRound = open.round
-    state.phase = 'interrupted'
+    if (open.evidence.length > 0) state.partialEvidence = open.evidence
   }
   return state
 }

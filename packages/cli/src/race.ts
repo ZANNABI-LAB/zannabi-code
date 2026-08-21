@@ -111,7 +111,8 @@ export async function runRace(opts: RaceOptions): Promise<RaceSummary | undefine
 
   outcomes.push(...(await runConcurrent(jobs, opts.concurrency)))
 
-  const summary = summarizeRace(raceId, opts.intent, outcomes)
+  // 계획 턴은 조가 아니라 race가 한 번 낸다 — 그 비용이 총액에서 빠지면 집계가 거짓이 된다
+  const summary = summarizeRace(raceId, opts.intent, outcomes, plan.usage?.costUsd)
   const dir = join(opts.cwd, RACES_DIR, raceId)
   mkdirSync(dir, { recursive: true })
   writeFileSync(join(dir, 'summary.json'), JSON.stringify(summary, null, 2))
@@ -140,7 +141,9 @@ export function renderRace(summary: RaceSummary): string {
     summary.totalCostUsd === undefined
       ? '보고되지 않음'
       : `$${summary.totalCostUsd.toFixed(4)} (${summary.costCoverage})`
-  lines.push(`**보고된 실행 비용 합계**: ${total}`)
+  if (summary.planCostUsd !== undefined)
+    lines.push(`**공유 계획 턴**: $${summary.planCostUsd.toFixed(4)} (조 수와 무관하게 한 번)`)
+  lines.push(`**보고된 총 비용**: ${total}${summary.planCostUsd === undefined ? '' : ' — 계획 + 실행'}`)
   if (summary.costCoverage === 'partial')
     lines.push('', '> 일부 조가 비용을 보고하지 않아 합계는 지출의 일부입니다.')
   lines.push('', `**판정**: ${summary.verdict}`)

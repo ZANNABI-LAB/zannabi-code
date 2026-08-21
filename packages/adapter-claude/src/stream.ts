@@ -8,6 +8,8 @@ export interface ParsedStream {
   /** result 이벤트가 성공이 아닐 때의 사유 (subtype + 본문 앞부분) */
   errorReason?: string
   usage?: Usage
+  /** 런타임이 스스로 보고한 모델(`system/init`). 우리가 지정한 값이 아니다 */
+  model?: string
 }
 
 /**
@@ -32,6 +34,7 @@ export function parseStreamJson(raw: string): ParsedStream {
   let errorReason: string | undefined
   let sawResult = false
   let usage: Usage | undefined
+  let model: string | undefined
   for (const line of raw.split('\n')) {
     const trimmed = line.trim()
     if (!trimmed) continue
@@ -49,6 +52,8 @@ export function parseStreamJson(raw: string): ParsedStream {
       payload: json,
     })
     if (typeof json.session_id === 'string') sessionId = json.session_id
+    // 실제로 무엇이 돌았는지는 그쪽만 안다 — 환경변수로 정해질 수도 있다
+    if (typeof json.model === 'string') model = json.model
     if (json.type === 'result') {
       sawResult = true
       usage = readUsage(json.usage, USAGE_KEYS, json.total_cost_usd) ?? usage
@@ -65,5 +70,5 @@ export function parseStreamJson(raw: string): ParsedStream {
   }
   // result 이벤트 자체가 없으면 스트림이 중간에 끊긴 것 — 이것도 사유다
   if (!sawResult) errorReason = 'result 이벤트 없음 (스트림이 완료 전에 끊김)'
-  return { sessionId, finalText, ok, events, errorReason, usage }
+  return { sessionId, finalText, ok, events, errorReason, usage, model }
 }

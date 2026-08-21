@@ -36,6 +36,23 @@ export const RECHECK_FAST_RATIO = 0.4
  */
 export const RECHECK_MIN_MS = 5_000
 
+/**
+ * 청소를 명시한 명령이 이보다 빨리 끝나면, 비율과 무관하게 짚는다.
+ *
+ * **실측이 비율 축의 사각을 드러냈다.** `:csms:cleanTest build`가 첫 회 2075ms /
+ * 재확인 1159ms로 비율 0.56이라 임계(0.4)를 안 넘었고, 첫 회가 5초 미만이라
+ * {@link RECHECK_MIN_MS}에도 걸러졌다. 그런데 그 게이트는 **시험이 한 번도 돈 적 없는
+ * 초록**이었다(대상 저장소의 빌드 캐시가 clean 뒤의 재컴파일까지 건너뛰었다).
+ * 비율은 "두 번째가 첫 번째보다 빨랐는가"만 묻는다 — **첫 회부터 헛돌면 둘 다 빠르고
+ * 비율은 1에 가까워 정상으로 보인다.**
+ *
+ * clean·cleanTest를 명시한 빌드가 몇 초에 끝나는 것은 일이 일어나지 않았다는 직접 신호다.
+ */
+export const CLEAN_MIN_MS = 10_000
+
+/** 청소를 명시하는 토큰. 도구 이름이 아니라 **의도**를 보는 것이라 래퍼 스크립트에도 걸린다 */
+const CLEAN_TOKENS = /\b(clean|cleanTest|cleanBuild|clean-test|distclean)\b/i
+
 /** 재확인이 실제로 다시 돌지 않았을 수 있다는 정황 한 건 */
 export interface RecheckSuspect {
   gate: string
@@ -43,6 +60,12 @@ export interface RecheckSuspect {
   firstMs: number
   /** 재확인 중 가장 짧았던 소요시간 — 스킵의 신호가 가장 강한 회차 */
   recheckMs: number
+  /**
+   * 무엇이 이 정황을 만들었나.
+   * `ratio`는 재확인이 첫 회보다 크게 빨랐다는 뜻이고,
+   * `clean-too-fast`는 **첫 회부터** 청소 명령이 말이 안 되게 빨리 끝났다는 뜻이다.
+   */
+  reason: 'ratio' | 'clean-too-fast'
 }
 
 /**
@@ -59,12 +82,28 @@ export interface RecheckSuspect {
 export function recheckSuspects(first: Evidence[], recheck: Evidence[]): RecheckSuspect[] {
   const suspects: RecheckSuspect[] = []
   for (const origin of first) {
-    if (origin.outcome !== 'pass' || origin.durationMs < RECHECK_MIN_MS) continue
+    if (origin.outcome !== 'pass') continue
     const durations = recheck.filter(e => e.gate === origin.gate).map(e => e.durationMs)
     if (durations.length === 0) continue
     const fastest = Math.min(...durations)
-    if (fastest < origin.durationMs * RECHECK_FAST_RATIO)
-      suspects.push({ gate: origin.gate, firstMs: origin.durationMs, recheckMs: fastest })
+
+    // 축 1 — 재확인이 첫 회보다 크게 빨랐다. 짧은 명령은 프로세스 기동 편차가
+    // 소요시간을 지배하므로 비율을 묻지 않는다
+    if (origin.durationMs >= RECHECK_MIN_MS && fastest < origin.durationMs * RECHECK_FAST_RATIO) {
+      suspects.push({
+        gate: origin.gate, firstMs: origin.durationMs, recheckMs: fastest, reason: 'ratio',
+      })
+      continue
+    }
+
+    // 축 2 — 첫 회부터 헛돈 경우. 비율은 이것을 볼 수 없다(둘 다 빠르면 비율은 1에 가깝다).
+    // 명령 문자열을 보지만 **사전 경고가 아니다**: 지웠던 그 검사는 명령만 보고 미리
+    // 짚어 오탐만 냈고, 이것은 명령의 의도와 **실측된 소요시간을 함께** 본다.
+    // "clean을 붙였는데 실제로 2초에 끝났다"는 관측이지 추측이 아니다
+    if (CLEAN_TOKENS.test(origin.cmd) && origin.durationMs < CLEAN_MIN_MS)
+      suspects.push({
+        gate: origin.gate, firstMs: origin.durationMs, recheckMs: fastest, reason: 'clean-too-fast',
+      })
   }
   return suspects
 }

@@ -88,9 +88,13 @@ export type Manifest = z.infer<typeof ManifestSchema>
 /**
  * 이 러너의 신고.
  *
- * `cost`가 `partial`인 것은 겸손이 아니라 사실이다 — claude는 비용을 주고 codex는 주지
- * 않는다. 그 차이를 러너가 삼키면 화면이 "$0.00"을 그리게 된다.
- * 나머지가 `full`인 것도 마찬가지로 사실이어야 한다: 신고는 자랑이 아니라 계약이고,
+ * **한 번 과장했다가 외부 리뷰에 잡혔다.** 처음에는 비용만 `partial`이고 나머지는 전부
+ * `full`이었는데, 증거는 작업하는 에이전트가 지울 수 있고, 리비전 결박은 git 밖에서
+ * 성립하지 않으며, 재개는 워크트리로 돌던 실행에서 격리를 잇지 못한다.
+ * "신고는 자랑이 아니라 계약"이라고 문서에 써 놓고 정작 자기에게는 관대했던 것이다.
+ *
+ * 그래서 규칙을 다시 적는다: **여기 `full`을 적으려면 예외가 없어야 한다.**
+ * 조건부로 되는 것은 전부 `partial`이고, 그 조건을 주석에 남긴다.
  * 못 하는 것을 신고하면 소비자가 없는 화면을 그리려다 깨진다.
  */
 export function manifest(version: string): Manifest {
@@ -99,13 +103,26 @@ export function manifest(version: string): Manifest {
     version,
     contractVersion: CONTRACT_VERSION,
     capabilities: {
+      // 게이트는 러너가 직접 돌리고 종료코드로만 판정한다 — 여기에는 예외가 없다
       gates: 'full',
-      evidence: 'full',
-      revisionBinding: 'full',
-      // 실행 런타임에 따라 갈린다. 리포트의 커버리지(full/partial/none/not-run)가 실행마다 말한다
+      /**
+       * `partial`인 이유: 증거 디렉토리가 **대상 저장소 안**에 있어 작업하는 에이전트가
+       * 지울 수 있다. 러너는 손실을 감지해 판정을 `evidence-lost`로 강등하지만
+       * 그것은 사후 복구지 경계가 아니다. `full`로 신고하면 소비자가 "증거는 항상 있다"를
+       * 전제로 화면을 그리게 된다.
+       */
+      evidence: 'partial',
+      /** `partial`인 이유: git 저장소가 아니면 `tracked: false`가 되어 결박할 리비전이 없다 */
+      revisionBinding: 'partial',
+      /** `partial`인 이유: claude는 비용을 주고 codex는 주지 않는다 */
       cost: 'partial',
       liveJournal: 'full',
-      resume: 'full',
+      /**
+       * `partial`인 이유: 워크트리로 돌던 실행을 재개하면 격리가 이어지지 않는다
+       * (워크트리는 실행이 끝날 때 치워지고, 브랜치만 남는다).
+       * 격리 없이 돌린 실행의 재개는 온전하다.
+       */
+      resume: 'partial',
       isolation: 'full',
       bestOfN: 'full',
     },

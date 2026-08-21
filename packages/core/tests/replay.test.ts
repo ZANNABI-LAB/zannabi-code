@@ -69,7 +69,7 @@ test('승인 대기 중 끊긴 저널은 멈춰 죽은 것과 구분된다', asy
   expect(resumability(state).ok).toBe(false)
 })
 
-test('게이트 도중 끊긴 라운드는 완료로 치지 않는다', async () => {
+test('게이트 도중 끊긴 라운드는 완료로 치지 않되, 진행 상태를 덮지 않는다', async () => {
   const adapter = new FakeAdapter([fakeResult(planText('true')), fakeResult('했음')])
   const opts = options({ adapter })
   await runLoop(opts)
@@ -78,7 +78,9 @@ test('게이트 도중 끊긴 라운드는 완료로 치지 않는다', async ()
   const cut = all.slice(0, all.findIndex(e => e.type === 'round-finished'))
   const state = replay(cut)
 
-  expect(state.phase).toBe('interrupted')
+  // 예전에는 여기서 phase를 interrupted로 덮었는데, open은 정상 실행 중에도 언제나 참이라
+  // 살아 있는 실행이 전부 "끊김"으로 보였다. 아는 것(어디까지 왔는가)만 말한다
+  expect(state.phase).not.toBe('interrupted')
   expect(state.partialRound).toBe(1)
   // 절반만 검증된 라운드를 완료로 치면 돌지 않은 게이트가 판정에서 빠진다 = 거짓 초록
   expect(state.rounds).toHaveLength(0)

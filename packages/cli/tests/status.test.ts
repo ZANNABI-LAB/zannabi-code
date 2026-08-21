@@ -79,8 +79,9 @@ test('중단된 실행은 재개 안내와 함께, 단정하지 않고 보고된
 
   const { code, out } = await cli(['status', found.runId, '--cwd', cwd])
   expect(code).toBe(0)
-  expect(out).toContain('중단됨')
-  expect(out).toContain('이어서 돌 수 있습니다')
+  expect(out).toContain('진행 중')
+  // 살아 있을 수도 있는 실행에 재개를 무조건 권하지 않는다 — 조건을 붙인다
+  expect(out).toContain('러너가 이미 멎었다면')
   // 저널은 프로세스 생사를 모른다 — 모르는 것을 아는 척하면 안 된다
   expect(out).toContain('저널이 말할 수 없습니다')
 }, 20_000)
