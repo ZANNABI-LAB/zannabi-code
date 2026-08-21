@@ -118,7 +118,7 @@ test('실행이 워크트리 안에서만 파일을 바꾼다', async () => {
 })
 
 test('같은 저장소에서 두 실행이 동시에 돌아도 증거가 섞이지 않는다', async () => {
-  // Phase 6의 완료 기준 그 자체
+  // 격리가 존재하는 이유 그 자체
   const cwd = repo()
   const [wtA, wtB] = await Promise.all([createWorktree(cwd, 'run-A'), createWorktree(cwd, 'run-B')])
 

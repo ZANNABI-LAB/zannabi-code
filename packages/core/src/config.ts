@@ -34,6 +34,13 @@ export const ConfigSchema = z.object({
   verifyRepeat: z.number().int().min(1).optional(),
   gateTimeoutMs: z.number().int().positive().optional(),
   rejectSuggested: z.boolean().optional(),
+  /**
+   * 실행을 전용 워크트리에 격리할지.
+   *
+   * 격리 여부도 실행 조건이므로 여기 있어야 한다 — 같은 조건으로 두 번 돌릴 수 없으면
+   * 실행끼리 비교가 성립하지 않는다는 것이 이 파일이 존재하는 이유 그 자체다.
+   */
+  worktree: z.boolean().optional(),
 })
 export type Config = z.infer<typeof ConfigSchema>
 

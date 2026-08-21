@@ -21,9 +21,9 @@ import { EvidenceSchema, RevisionSchema, GateSchema, DroppedGateSchema } from '.
 /**
  * 저널이 따르는 계약 판. 소비자는 이 값을 보고 읽을 수 있는지 판단한다.
  *
- * 스키마 동결은 Phase 8(병렬 실물을 본 뒤)이므로 지금 값은 "1을 향해 가는 중"이라는 뜻이다.
- * 그래도 지금부터 박아 두는 이유는, 판 번호 없는 파일이 이미 밖에 나가 있으면
- * 나중에 판을 붙이는 순간 옛 파일 전부가 "판 미상"이 되기 때문이다.
+ * 판 번호를 처음부터 박아 두는 이유: 번호 없는 파일이 이미 밖에 나가 있으면
+ * 나중에 판을 붙이는 순간 옛 파일 전부가 "판 미상"이 된다.
+ * 판을 올리는 규칙은 `docs/contract-v1.md` §5에 있다.
  */
 export const CONTRACT_VERSION = 1
 
@@ -60,6 +60,14 @@ export const JournalEventSchema = z.discriminatedUnion('type', [
     runtime: z.object({ plan: z.string(), exec: z.string() }).optional(),
     profile: z.string().optional(),
     maxCostUsd: z.number().optional(),
+    /**
+     * best-of-N의 일부라면 그 race의 이름.
+     *
+     * 없으면 같은 작업의 조 셋이 서로 무관한 실행 셋으로 보인다 — race를 여러 번 돌린
+     * 저장소에서 어느 실행이 어느 비교에 속했는지 알 수 없게 되고, 조합별 실적을 모으는
+     * 측정이 성립하지 않는다.
+     */
+    raceId: z.string().optional(),
   }),
   /**
    * 중단됐던 실행을 이어받았다.

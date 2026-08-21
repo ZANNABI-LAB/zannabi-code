@@ -116,6 +116,33 @@ test('세 조가 동시에 돌아도 각자의 증거와 브랜치가 따로 남
   expect(git(['worktree', 'list'], cwd).split('\n').filter(Boolean)).toHaveLength(1)
 }, 30_000)
 
+test('조들의 저널이 같은 raceId를 달아 서로 묶인다', async () => {
+  // 없으면 같은 작업의 조 셋이 서로 무관한 실행 셋으로 보인다 —
+  // race를 여러 번 돌린 저장소에서 어느 실행이 어느 비교에 속했는지 알 수 없다
+  const cwd = repo()
+  const summary = await runRace({
+    intent: '묶임 확인',
+    cwd,
+    arms: [
+      { name: 'a', agent: 'claude' },
+      { name: 'b', agent: 'claude' },
+    ],
+    userGates: [],
+    budget: 1,
+    concurrency: 2,
+    planAdapter: { name: 'plan', async run() { return fakeResult(PLAN) } },
+    planLabel: 'claude:default',
+    adapterFor: () => new FakeAdapter([fakeResult('했음')]),
+    approve: async () => ({ action: 'approve' }),
+    log: () => {},
+  })
+
+  const raceIds = listRuns(cwd).map(
+    runId => replay(readJournal(join(cwd, '.zannabi', 'runs', runId))).raceId,
+  )
+  expect(raceIds).toEqual([summary!.raceId, summary!.raceId])
+}, 30_000)
+
 test('집계가 파일로 남고, 개별 실행의 판정과 같은 말을 한다', async () => {
   const cwd = repo()
   const summary = await runRace({

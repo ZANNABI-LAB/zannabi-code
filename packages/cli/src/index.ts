@@ -356,7 +356,8 @@ async function main() {
 
   // 격리를 못 하는 자리인지 **증거 디렉토리를 만들기 전에** 본다. 거부할 실행이
   // 빈 디렉토리를 남기면 status 목록에 기록 없는 실행이 쌓이고, 측정에 노이즈가 된다
-  if (values.worktree) {
+  const useWorktree = values.worktree ?? config.worktree ?? false
+  if (useWorktree) {
     const usable = await worktreeUsable(cwd)
     if (!usable.ok) {
       console.error(`[zannabi] ${usable.reason}`)
@@ -428,7 +429,7 @@ async function main() {
    * 증거(`.zannabi/`)는 원본 저장소에 남는다: 실행의 기록은 워크트리보다 오래 산다.
    */
   let worktree: Worktree | undefined
-  if (values.worktree) {
+  if (useWorktree) {
     try {
       worktree = await createWorktree(cwd, store.runId)
     } catch (err) {

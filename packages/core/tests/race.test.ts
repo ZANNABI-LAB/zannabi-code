@@ -36,7 +36,7 @@ function outcome(
 }
 
 test('집계의 비용 합은 개별 조의 합과 같다', () => {
-  // Phase 7의 완료 기준. 집계가 개별 실행과 다른 말을 하기 시작하면
+  // best-of-N이 지켜야 할 것. 집계가 개별 실행과 다른 말을 하기 시작하면
   // 병렬은 측정 도구가 아니라 측정을 망치는 장치가 된다
   const arms = [outcome('a', 'success', 1, 1.25), outcome('b', 'success', 2, 0.5)]
   const summary = summarizeRace('r1', '작업', arms)

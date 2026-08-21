@@ -29,7 +29,7 @@ const sleep = (ms: number) => new Promise(r => setTimeout(r, ms))
  *
  * 저널을 손으로 자르는 테스트(replay.test.ts)와 따로 두는 이유: 잘라 만든 파일은
  * **우리가 상상한 중단 지점**이고, 실제로 죽은 프로세스가 남기는 것은 다를 수 있다.
- * Phase 5의 완료 기준이 "kill -9 후 재개"라면 그것을 그대로 해 봐야 한다.
+ * "kill -9 후에도 이어서 돈다"고 말하려면 그것을 그대로 해 봐야 한다.
  */
 test('kill -9로 죽인 실행을 이어서 돌면 성공으로 끝난다', async () => {
   const cwd = mkdtempSync(join(tmpdir(), 'zannabi-kill9-'))

@@ -1,7 +1,14 @@
 {
   "name": "@zannabi-lab/adapter-claude",
   "version": "0.0.1",
+  "description": "Claude Code 헤드리스 어댑터",
   "license": "Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/ZANNABI-LAB/zannabi-code.git",
+    "directory": "packages/adapter-claude"
+  },
+  "homepage": "https://github.com/ZANNABI-LAB/zannabi-code",
   "type": "module",
   "module": "src/index.ts",
   "types": "src/index.ts",

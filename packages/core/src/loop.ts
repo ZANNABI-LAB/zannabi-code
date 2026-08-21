@@ -85,6 +85,8 @@ export interface LoopOptions {
    * 지출을 승계하지만, 이쪽은 라운드 0에서 시작하는 새 실행이다.
    */
   sharedPlan?: { text: string; gates: Gate[] }
+  /** best-of-N의 조로 도는 실행이면 그 race의 이름. 증거에만 남고 루프 동작에는 영향이 없다 */
+  raceId?: string
   /**
    * 라운드 하나가 끝날 때마다 불린다 — 워크트리 격리가 라운드별 커밋을 남기는 자리다.
    *
@@ -150,7 +152,7 @@ export interface LoopResult {
   attempts: number
   /** 라운드별 기록. 각 라운드가 어떤 리비전을 검사했고 앞 라운드의 반복인지까지 담는다 */
   rounds: Round[]
-  /** 계획 턴과 실행 턴이 각각 쓴 자원. Phase 4 라우팅이 딛고 설 유일한 실측 축이다 */
+  /** 계획 턴과 실행 턴이 각각 쓴 자원. 조합별 실적을 비교하는 유일한 실측 축이다 */
   usage?: { plan: Usage; exec: Usage }
   /** 실패 사유 한 줄. report.md에 실려 transcript를 뒤지지 않아도 되게 한다 */
   detail?: string
@@ -189,7 +191,7 @@ export interface LoopResult {
  * 예산 소진은 "아무것도 안 됐다"처럼 읽히지만, 실제로는 완료 기준(사용자 게이트)을 전부
  * 통과하고 에이전트가 스스로 건 게이트에서만 막힌 실행이 있었다. 그 차이를 사유 한 줄에 담는다.
  */
-export function userGateSummary(rounds: Round[]): string | undefined {
+function userGateSummary(rounds: Round[]): string | undefined {
   const last = rounds.at(-1)?.evidence
   if (!last || last.length === 0) return undefined
   const tally = (source: Evidence['source']) => {
@@ -212,7 +214,7 @@ export function userGateSummary(rounds: Round[]): string | undefined {
  * `advisory`인 이유: 제안이 밀렸다는 사실이 실행을 막을 근거는 아니다. 사용자 게이트가
  * 이기는 것은 설계대로다. 다만 `--yes`로 사람이 안 볼 때도 report.md에는 남아야 한다.
  */
-export function droppedWarning(d: DroppedGate): GateWarning {
+function droppedWarning(d: DroppedGate): GateWarning {
   return {
     gate: d.name,
     cmd: d.cmd,
@@ -326,6 +328,7 @@ async function runLoopWith(
     ...(runtime === undefined ? {} : { runtime }),
     ...(opts.profile === undefined ? {} : { profile: opts.profile }),
     ...(opts.maxCostUsd === undefined ? {} : { maxCostUsd: opts.maxCostUsd }),
+    ...(opts.raceId === undefined ? {} : { raceId: opts.raceId }),
   })
 
   // 0. 사전점검 — 인증 만료처럼 실행 전에 알 수 있는 실패를 계획 비용 전에 잡는다.

@@ -90,6 +90,7 @@ export async function runRace(opts: RaceOptions): Promise<RaceSummary | undefine
       ...(opts.gateTimeoutMs === undefined ? {} : { gateTimeoutMs: opts.gateTimeoutMs }),
       store,
       sharedPlan: { text: plan.finalText, gates },
+      raceId,
       approve: async () => ({ action: 'approve' }),
       log: message => opts.log(`[${arm.name}] ${message}`),
       afterRound: async (round: Round) => {

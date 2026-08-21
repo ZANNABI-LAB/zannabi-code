@@ -1,5 +1,11 @@
 {
   "name": "zannabi-code",
+  "description": "검증 우선 외부 러너 — 증거 없으면 완료가 아니다",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/ZANNABI-LAB/zannabi-code.git"
+  },
+  "homepage": "https://github.com/ZANNABI-LAB/zannabi-code",
   "private": true,
   "license": "Apache-2.0",
   "workspaces": [

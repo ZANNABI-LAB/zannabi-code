@@ -1,9 +1,8 @@
 /**
  * `zannabi status` — 저널만 읽어 실행 상태를 말한다.
  *
- * **편의 기능이 아니라 계약의 검산이다.** Phase 5의 완료 기준 하나가 "저널 tail만으로
- * 외부에서 상태를 재구성할 수 있다"인데, 그 주장을 러너 스스로 지키는지 확인할 방법이
- * 없으면 주장으로 남는다. 이 명령은 `report.md`도 `evidence.json`도 읽지 않는다 —
+ * **편의 기능이 아니라 계약의 검산이다.** 이 러너는 "저널만 있으면 밖에서 상태를 재구성할
+ * 수 있다"고 주장하는데, 그 주장을 스스로 지키는지 확인할 방법이 없으면 주장으로 남는다. 이 명령은 `report.md`도 `evidence.json`도 읽지 않는다 —
  * 저널 한 파일에서 나오지 않는 정보는 여기 뜰 수 없고, 안 뜨면 계약이 부족한 것이다.
  *
  * 그래서 millim이 할 일을 러너가 미리 하는 것이 아니다. 같은 파일로 같은 것을 할 수 있다는
@@ -41,6 +40,8 @@ export function renderStatus(state: ReplayState): string {
   lines.push(`상태: ${head}`)
   if (state.runtime) lines.push(`런타임: 계획 ${state.runtime.plan} · 실행 ${state.runtime.exec}`)
   if (state.profile) lines.push(`프리셋: ${state.profile}`)
+  // 조 하나만 떼어 보는 사람에게 "이것은 비교의 일부였다"를 알린다
+  if (state.raceId) lines.push(`best-of-N: ${state.raceId}의 조 하나입니다`)
 
   const budget = state.budget === undefined ? '?' : String(state.budget)
   lines.push(`라운드: ${state.rounds.length}/${budget} 완료`)
@@ -87,5 +88,7 @@ export function renderRunLine(runId: string, state: ReplayState): string {
   const rounds = `${state.rounds.length}${state.budget === undefined ? '' : `/${state.budget}`}R`
   const cost = state.spentUsd === undefined ? '' : ` · $${state.spentUsd.toFixed(2)}`
   const lost = state.losses.length > 0 ? ' · 증거손실' : ''
-  return `${mark} ${runId}  ${what} · ${rounds}${cost}${lost}`
+  // 목록에서 race의 조들이 서로 무관한 실행으로 보이지 않게 한다
+  const race = state.raceId ? ' · race' : ''
+  return `${mark} ${runId}  ${what} · ${rounds}${cost}${lost}${race}`
 }

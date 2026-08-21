@@ -6,12 +6,16 @@
 
 [![license](https://img.shields.io/badge/license-Apache--2.0-blue)](LICENSE)
 [![runtime](https://img.shields.io/badge/runtime-Bun-black)](https://bun.sh)
-![tests](https://img.shields.io/badge/tests-262%20passing-brightgreen)
+![tests](https://img.shields.io/badge/tests-263%20passing-brightgreen)
 
 > **Shake the branch before you cross.** — 잔나비는 건너기 전에 가지를 흔들어본다
 
 검증 우선 외부 러너 — 증거 없으면 완료가 아니다. 검증 게이트를 에이전트 밖에 두고,
 헤드리스 코딩 에이전트를 구동하며, 모든 완료 선언에 기계 검증 가능한 증거를 요구한다.
+
+> **상태: pre-1.0 (v0.0.1).** 실전에서 쓰고 있지만 인터페이스는 아직 바뀔 수 있다.
+> npm에 배포하지 않았으므로 설치는 이 저장소를 받아 `bun link` 한다.
+> [러너 계약 v1](docs/contract-v1.md)만은 판 번호로 관리한다 — 다른 도구가 그것을 읽기 때문이다.
 
 ## 원리
 
@@ -42,6 +46,7 @@ zannabi run "작업 설명" --cwd /path/to/project --gate "test:bun test" --budg
 
 | 옵션 | 뜻 |
 |---|---|
+| `--cwd <경로>` | 작업할 프로젝트 (기본 `.`) — 러너와 대상은 다른 곳에 있어도 된다 |
 | `--gate "<이름>:<명령>"` | 검증 게이트. 여러 번 줄 수 있다 |
 | `--budget <N>` | 재시도 **횟수** (기본 3) |
 | `--max-cost <USD>` | 보고된 누적 비용이 이 금액에 닿으면 라운드를 더 시작하지 않는다 |
@@ -61,7 +66,7 @@ zannabi run "작업 설명" --cwd /path/to/project --gate "test:bun test" --budg
 `zannabi resume [<이름 일부>]`는 중단된 실행을 이어서 돈다(둘 다 이름을 생략하면 최신 실행이다).
 `zannabi race "<작업>" --arm A --arm B`는 같은 작업을 여러 조합으로 동시에 돌려 게이트로 고른다.
 
-**프리셋.** `--profile`은 Phase 2의 8회 측정에서 나온 운용 방침을 그대로 담은 조합 묶음이다.
+**프리셋.** `--profile`은 초기 8회 실측에서 나온 운용 방침을 그대로 담은 조합 묶음이다.
 
 | 프리셋 | 하는 일 | 근거 |
 |---|---|---|
@@ -105,7 +110,8 @@ zannabi run "작업 설명" --cwd /path/to/project --gate "test:bun test" --budg
   "planModel": "claude-opus-5",
   "execAgent": "codex",
   "verifyRepeat": 2,
-  "rejectSuggested": true
+  "rejectSuggested": true,
+  "worktree": true
 }
 ```
 
@@ -322,9 +328,13 @@ git 이력 자체로 말한다. 바뀐 것이 없는 라운드는 빈 커밋을 
 포함되지 않는다.** 그 사실을 실행 시작 시 파일 수와 함께 알린다 — 모르고 돌리면
 "왜 내 수정이 반영 안 됐지"를 나중에 겪는다.
 
+> **브랜치는 쌓인다.** 실행마다 `zannabi/<실행>` 브랜치가 하나 남고 러너는 그것을 지우지
+> 않는다 — 실패한 실행의 작업물도 사라지면 안 되기 때문이다. 정리는 사람의 몫이다:
+> `git branch --list 'zannabi/*'`로 보고 `git branch -D`로 지운다.
+>
 > ⚠️ **재개(`zannabi resume`)와 워크트리를 함께 쓰면 지금은 원본에서 이어간다.** 실행이 끝날 때
 > 워크트리를 치우기 때문에 이어갈 자리가 남아 있지 않다. 작업물은 브랜치에 있으므로 잃지는
-> 않지만, 이어 도는 라운드는 격리되지 않는다. Phase 7에서 병렬 실행의 실물을 보고 정한다.
+> 않지만, 이어 도는 라운드는 격리되지 않는다. 병렬 실행의 실물을 더 본 뒤에 정한다.
 
 기본값은 격리가 **꺼져 있다.** 한 줄 고치는 작업에까지 브랜치 병합을 붙이는 것은 값보다
 비용이 크다. 워크트리는 저장소 **밖**(시스템 임시 디렉토리)에 만든다 — 안에 두면 그 디렉토리가
@@ -441,10 +451,10 @@ core 변경분은 두 어댑터가 공유하는 프로세스 구동 배관을 �
 ## 개발
 
 ```bash
-bun test        # 262개
+bun test        # 263개
 bun run typecheck
 ```
 
 ## 라이선스
 
-[Apache License 2.0](LICENSE)
+[Apache License 2.0](LICENSE) · 저작권 표기는 [NOTICE](NOTICE)

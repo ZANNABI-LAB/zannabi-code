@@ -54,7 +54,7 @@ append-only JSONL. **한 파일이 세 가지를 겸한다** — tail하면 실�
 
 | type | 언제 | 담는 것 |
 |---|---|---|
-| `run-started` | 실행 시작 | `contractVersion` `runId` `intent` `cwd` `budget` `runtime?` `profile?` `maxCostUsd?` |
+| `run-started` | 실행 시작 | `contractVersion` `runId` `intent` `cwd` `budget` `runtime?` `profile?` `maxCostUsd?` `raceId?` |
 | `run-resumed` | 중단된 실행을 이어받음 | `fromRound` `completedRounds` `runtime?` |
 | `plan-finished` | 계획 턴 종료 | `ok` `usage?` `sessionId?` |
 | `approval-requested` | 사람의 승인 대기 | `gates` `warnings` `dropped?` |
@@ -79,6 +79,8 @@ append-only JSONL. **한 파일이 세 가지를 겸한다** — tail하면 실�
   한 번에 돈 실행과 세 번 끊겼다 이어 돈 실행이 똑같아 보인다.
 - **`gate-result`가 게이트마다 나오는 이유**: 라운드 끝에 몰아 쓰면 30분짜리 게이트를 도는
   동안 밖에서는 러너가 멈춘 것과 구분되지 않는다.
+- **`raceId`가 있는 이유**: best-of-N의 조 셋이 없으면 서로 무관한 실행 셋으로 보인다.
+  같은 비교에 속했다는 사실이 사라지면 조합별 실적을 모으는 측정이 성립하지 않는다.
 - **`cost-updated`가 따로 있는 이유**: 사용량 이벤트를 합치면 나오는 값이지만, 소비자가
   러너의 합산 규칙(캐시 입력을 어느 쪽이 포함하는지 등)을 다시 구현하게 만들면
   그건 계약이 아니라 숙제다.

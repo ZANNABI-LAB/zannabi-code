@@ -1,10 +1,18 @@
 {
   "name": "@zannabi-lab/adapter-codex",
   "version": "0.0.1",
+  "description": "Codex CLI 헤드리스 어댑터",
   "license": "Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/ZANNABI-LAB/zannabi-code.git",
+    "directory": "packages/adapter-codex"
+  },
+  "homepage": "https://github.com/ZANNABI-LAB/zannabi-code",
   "type": "module",
-  "main": "src/index.ts",
   "dependencies": {
     "@zannabi-lab/core": "workspace:*"
-  }
+  },
+  "module": "src/index.ts",
+  "types": "src/index.ts"
 }

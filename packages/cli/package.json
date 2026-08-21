@@ -1,7 +1,14 @@
 {
   "name": "@zannabi-lab/cli",
   "version": "0.0.1",
+  "description": "zannabi 명령 — 검증 우선 외부 러너의 CLI",
   "license": "Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/ZANNABI-LAB/zannabi-code.git",
+    "directory": "packages/cli"
+  },
+  "homepage": "https://github.com/ZANNABI-LAB/zannabi-code",
   "type": "module",
   "bin": {
     "zannabi": "src/index.ts"

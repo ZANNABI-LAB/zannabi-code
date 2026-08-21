@@ -1,7 +1,7 @@
 /**
  * 저널 재생 — 이벤트 줄만 읽어 실행의 상태를 재구성한다.
  *
- * **이것이 Phase 5의 심장이다.** 재개와 실시간 화면은 같은 재료를 쓴다는 주장이 여기서
+ * **재개와 실시간 화면은 같은 재료를 쓴다**는 주장이 여기서
  * 증명되거나 깨진다: 이 함수 하나가 두 곳에 쓰인다 —
  * `zannabi status`는 결과를 사람에게 보여주고, 재개는 같은 결과를 루프의 초기 상태로 삼는다.
  * 두 경로가 갈리면 "밖에서 본 상태"와 "이어서 도는 상태"가 어긋나고, 그 순간 계약은 거짓말이 된다.
@@ -11,7 +11,7 @@
  * 무엇보다 테스트가 실제 실행 없이 임의의 중단 지점을 만들어 낼 수 있다 —
  * kill -9를 재현하는 가장 값싼 방법은 저널을 잘라 보는 것이다.
  */
-import { addUsage, emptyUsage, type Usage } from './adapter'
+import { emptyUsage, type Usage } from './adapter'
 import type { CostCoverage } from './cost'
 import type { Gate, Round } from './goal'
 import type { JournalEvent } from './journal'
@@ -41,6 +41,8 @@ export interface ReplayState {
   runtime?: { plan: string; exec: string }
   profile?: string
   maxCostUsd?: number
+  /** best-of-N의 일부라면 그 race의 이름 */
+  raceId?: string
   startedAt?: string
 
   phase: RunPhase
@@ -113,6 +115,7 @@ export function replay(events: JournalEvent[]): ReplayState {
         state.runtime = event.runtime
         state.profile = event.profile
         state.maxCostUsd = event.maxCostUsd
+        state.raceId = event.raceId
         state.startedAt = event.at
         state.phase = 'planning'
         break
@@ -236,12 +239,4 @@ export function resumability(
       reason: `예산 ${state.budget}라운드를 이미 다 썼습니다 — 이어가려면 예산을 늘려 새로 시작해야 합니다`,
     }
   return { ok: true, nextRound }
-}
-
-/** 재생한 사용량을 루프가 이어 쓸 형태로. 재개 후에도 비용 상한이 같은 총액을 본다 */
-export function carriedUsage(state: ReplayState): { plan: Usage; exec: Usage } {
-  return {
-    plan: addUsage(emptyUsage(), state.usage.plan),
-    exec: addUsage(emptyUsage(), state.usage.exec),
-  }
 }
