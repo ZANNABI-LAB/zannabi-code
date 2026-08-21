@@ -11,6 +11,8 @@ import {
   PROFILES, PROFILE_NAMES, isProfileName,
   DEFAULT_STALL_LIMIT, DEFAULT_VERIFY_REPEAT, DEFAULT_GATE_TIMEOUT_MS, CONFIG_FILENAME,
   listRuns, resolveRun, readJournal, replay, RUNS_DIR, resumability, toRounds,
+  createWorktree, removeWorktree, commitRound, commitCount, branchDiff, worktreeUsable, WorktreeError,
+  type Worktree, type Round,
   type ResumeState,
   type Gate, type GateWarning, type AgentAdapter, type ApprovalDecision, type Profile,
 } from '@zannabi-lab/core'
@@ -147,6 +149,7 @@ async function main() {
       'verify-repeat': { type: 'string' },
       'gate-timeout': { type: 'string' },
       'no-suggest': { type: 'boolean' },
+      worktree: { type: 'boolean' },
       profile: { type: 'string' },
       yes: { type: 'boolean', default: false },
     },
@@ -165,6 +168,7 @@ async function main() {
       `  루프 계측: [--stall-limit N] (기본 ${DEFAULT_STALL_LIMIT}, 0이면 끔)` +
       ` [--verify-repeat N] (통과 재확인 횟수, 기본 ${DEFAULT_VERIFY_REPEAT})\n` +
       '  비용 상한: [--max-cost <USD>] (예산과 별개 축 — 라운드 수는 지출을 제어하지 못한다)\n' +
+      '  격리: [--worktree] (전용 워크트리에서 돌고 결과를 zannabi/<실행> 브랜치로 남긴다)\n' +
       '  게이트 고정: [--no-suggest] (제안 게이트 거부)' +
       ` [--gate-timeout <ms>] (기본 ${DEFAULT_GATE_TIMEOUT_MS})\n` +
       `  조합 프리셋: [--profile ${PROFILE_NAMES.join('|')}]\n` +
@@ -280,6 +284,16 @@ async function main() {
   // 작업하는 에이전트가 쓸 수 있다. 실제로 게이트를 지운 실행이 있었다
   const configBefore = { fingerprint: configFingerprint(cwd), config }
 
+  // 격리를 못 하는 자리인지 **증거 디렉토리를 만들기 전에** 본다. 거부할 실행이
+  // 빈 디렉토리를 남기면 status 목록에 기록 없는 실행이 쌓이고, 측정에 노이즈가 된다
+  if (values.worktree) {
+    const usable = await worktreeUsable(cwd)
+    if (!usable.ok) {
+      console.error(`[zannabi] ${usable.reason}`)
+      process.exit(1)
+    }
+  }
+
   /**
    * 재개면 저널에서 이어받을 것을 꺼낸다.
    *
@@ -338,6 +352,31 @@ async function main() {
     store = new RunStore(cwd, runIntent)
   }
 
+  /**
+   * 격리를 켰으면 전용 워크트리를 만들고 **루프에는 그 경로를 `cwd`로 준다.**
+   * 루프는 워크트리를 모른다 — 어댑터도 게이트도 리비전도 `cwd` 하나만 보기 때문이다.
+   * 증거(`.zannabi/`)는 원본 저장소에 남는다: 실행의 기록은 워크트리보다 오래 산다.
+   */
+  let worktree: Worktree | undefined
+  if (values.worktree) {
+    try {
+      worktree = await createWorktree(cwd, store.runId)
+    } catch (err) {
+      console.error(
+        `[zannabi] ${err instanceof WorktreeError ? err.message : `워크트리 준비 실패: ${err}`}`,
+      )
+      process.exit(1)
+    }
+    console.log(`[zannabi] 워크트리: ${worktree.path} (브랜치 ${worktree.branch})`)
+    // 원본의 미커밋 작업은 딸려오지 않는다. 그것을 모르고 "왜 내 수정이 없지"를 겪게 두지 않는다
+    if (worktree.uncommittedInOrigin > 0)
+      console.log(
+        `[zannabi] 원본에 미커밋 변경 ${worktree.uncommittedInOrigin}건이 있습니다 — ` +
+          `워크트리는 HEAD(${worktree.base.slice(0, 8)})에서 갈라졌으므로 그 변경은 포함되지 않습니다`,
+      )
+  }
+  const workDir = worktree?.path ?? cwd
+
   const { buildReport, captureDiff } = await import('./report')
 
   const result = await runLoop({
@@ -345,7 +384,7 @@ async function main() {
     userGates,
     budget: effectiveBudget,
     maxCostUsd,
-    cwd,
+    cwd: workDir,
     adapter: pickAdapter(plan),
     // 조합이 같으면 어댑터 하나만 쓴다 — 같은 런타임인데 세션이 끊기면 손해다
     execAdapter: label(plan) === label(exec) ? undefined : pickAdapter(exec),
@@ -357,12 +396,31 @@ async function main() {
     profile: profileName,
     store,
     ...(resume === undefined ? {} : { resume }),
+    // 라운드마다 커밋한다 — 실패로 끝난 실행의 작업물도 사라지면 안 되고,
+    // 라운드별 커밋은 "몇 번째 시도에서 무엇이 달라졌나"를 git 이력 자체로 말한다
+    ...(worktree === undefined
+      ? {}
+      : {
+          afterRound: async (round: Round) => {
+            const pass = round.evidence.filter(e => e.outcome === 'pass').length
+            const done = await commitRound(
+              worktree!.path,
+              round.round,
+              `게이트 ${pass}/${round.evidence.length} 통과`,
+            )
+            if (done.committed)
+              console.log(`[zannabi] 라운드 ${round.round} 커밋: ${done.sha?.slice(0, 8)}`)
+          },
+        }),
     approve: values.yes ? approveAutomatically : approveViaTerminal,
     log: message => console.log(`[zannabi] ${message}`),
   })
 
-  const configChange = compareConfig(configBefore, cwd)
-  const diff = await captureDiff(cwd)
+  // 설정 변조는 에이전트가 **작업한 자리**에서 본다 — 워크트리면 거기가 그 자리다
+  const configChange = compareConfig(configBefore, workDir)
+  // 워크트리는 라운드마다 커밋하므로 끝난 시점의 워킹트리는 깨끗하다.
+  // 그때 워킹트리 diff를 쓰면 증거가 "아무것도 안 바꿨다"고 거짓말을 한다
+  const diff = worktree ? await branchDiff(cwd, worktree) : await captureDiff(cwd)
   if (diff) store.writeDiff(diff)
   // 루프가 끝난 뒤 쓴 것(최종 diff)까지 포함한 최신 손실을 싣는다
   const report = buildReport(result, intent, configChange, store.losses)
@@ -370,6 +428,23 @@ async function main() {
 
   console.log(`\n${report}\n`)
   console.log(`[zannabi] 증거: ${store.dir}`)
+
+  if (worktree) {
+    // 브랜치는 남기고 워크트리만 치운다 — 브랜치가 곧 사용자에게 돌려주는 결과다.
+    // 실패로 끝난 실행의 브랜치도 지우지 않는다: 3라운드를 태운 시도에도 이어받을 것이 있다
+    const commits = await commitCount(cwd, worktree)
+    const cleanup = await removeWorktree(cwd, worktree)
+    if (commits > 0) {
+      console.log(`[zannabi] 결과: 브랜치 ${worktree.branch} (커밋 ${commits}개)`)
+      console.log(`         git merge ${worktree.branch} 로 가져가세요`)
+    } else {
+      console.log(`[zannabi] 브랜치 ${worktree.branch}에 커밋이 없습니다 — 바뀐 파일이 없었습니다`)
+    }
+    if (!cleanup.removed)
+      console.error(
+        `[zannabi] 워크트리를 치우지 못했습니다: ${cleanup.leftAt} — git worktree prune 후 지우세요`,
+      )
+  }
   if (result.status === 'no-gates')
     console.error('[zannabi] 게이트가 없어 실행을 거부했습니다. --gate "name:cmd"로 지정하세요.')
   if (result.status === 'env-error')

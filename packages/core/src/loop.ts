@@ -74,6 +74,17 @@ export interface LoopOptions {
    * 새 실행이다. 완료 기준(게이트)과 계획은 이미 사람이 승인한 그대로 쓴다.
    */
   resume?: ResumeState
+  /**
+   * 라운드 하나가 끝날 때마다 불린다 — 워크트리 격리가 라운드별 커밋을 남기는 자리다.
+   *
+   * 루프에 워크트리 개념을 넣지 않은 이유: 어댑터도 게이트도 리비전도 `cwd` 하나만 보므로,
+   * 격리는 **호출자가 다른 `cwd`를 주는 것**으로 끝난다. 루프가 알아야 할 것은
+   * "라운드가 끝났다"는 사실뿐이고, 그것으로 무엇을 할지는 호출자의 몫이다.
+   *
+   * 여기서 던지는 예외는 실행을 죽이지 않는다 — 커밋 실패로 판정을 뒤집는 것은
+   * 뒤바뀐 우선순위다. 실패는 로그로만 나간다.
+   */
+  afterRound?(round: Round): Promise<void>
 }
 
 /**
@@ -557,6 +568,13 @@ async function runLoopWith(
     })
     if (round.repeatOf !== undefined)
       opts.log(`라운드 ${attempt}: 변경분과 게이트 결과가 라운드 ${round.repeatOf}과 동일`)
+
+    if (opts.afterRound)
+      try {
+        await opts.afterRound(round)
+      } catch (err) {
+        opts.log(`라운드 후처리 실패: ${err instanceof Error ? err.message : err}`)
+      }
 
     const broken = evidence.filter(e => e.outcome === 'error')
     if (broken.length > 0)
