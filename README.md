@@ -6,7 +6,7 @@
 
 [![license](https://img.shields.io/badge/license-Apache--2.0-blue)](LICENSE)
 [![runtime](https://img.shields.io/badge/runtime-Bun-black)](https://bun.sh)
-[![tests](https://img.shields.io/badge/tests-145%20passing-brightgreen)]()
+![tests](https://img.shields.io/badge/tests-202%20passing-brightgreen)
 
 > **Shake the branch before you cross.** — 잔나비는 건너기 전에 가지를 흔들어본다
 
@@ -170,6 +170,18 @@ zannabi run "..." --plan-agent claude --exec-agent codex
 그때 달라져 있던 것이 diff였다. 반복이 감지되면 다음 실행 프롬프트에도 그 사실을 실어
 같은 접근을 되풀이하지 않게 한다. git 저장소가 아니면 diff 축이 없으므로 감지는 스스로 꺼진다.
 
+> **다만 이것은 거의 발동하지 않는 최후 안전망이다.** 실전에서 정체를 일부러 일으켜 세 번
+> 시도해 세 번 다 감지되지 않았고, **세 번의 이유가 전부 달랐다.** ① 막힌 에이전트는 가만히
+> 있지 않는다 — 불가능한 게이트를 걸어도 4라운드의 diff가 전부 달랐다. ② 러너 출력을 대상
+> 저장소 안으로 리다이렉트(`> run.log`)하면 그 파일이 매 라운드 커져 diff가 계속 달라진다
+> (`.zannabi/`는 러너가 알아서 빼지만 **사용자가 만든 로그 파일은 뺄 수 없으니 저장소 밖에
+> 두는 편이 낫다**). ③ 만들었다 지웠다 하는 A-B-A-B 왕복은 연속 꼬리를 세는 판정에 걸리지
+> 않는다 — 사이에 다른 시도가 낀 것을 정체로 부르면 되돌아가며 탐색하는 정상 동작을 끊기
+> 때문에 의도한 설계다. 11회 실측에서 `no-progress`가 한 번도 걸리지 않은 것도 표본 부족이
+> 아니라 이 때문이다. 남겨 둔 이유는 설계 근거가 실측이고(같은 라운드가 3번 반복된 실행이
+> 실제로 있었다) **오발동이 0회**라서다 — 값을 낸다고 광고할 물건은 아니고, 걸리면 그때
+> 벌어야 할 예산을 버는 물건이다.
+
 **재현되지 않는 통과는 증거가 아니다.** `--verify-repeat N`을 주면 모든 게이트가 통과한
 라운드에서 게이트를 N회까지 다시 돌려 재현을 확인하고, 한 번이라도 갈리면 `unreproduced-pass`로
 끝난다. 실패한 라운드는 재확인하지 않는다 — 어차피 다음 시도로 넘어가고, 비용도 성공 시
@@ -269,7 +281,7 @@ core 변경분은 두 어댑터가 공유하는 프로세스 구동 배관을 �
 ## 개발
 
 ```bash
-bun test        # 145개
+bun test        # 202개
 bun run typecheck
 ```
 
