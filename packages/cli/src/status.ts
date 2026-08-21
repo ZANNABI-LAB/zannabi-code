@@ -80,8 +80,16 @@ export function renderStatus(state: ReplayState): string {
   return lines.join('\n')
 }
 
-/** `zannabi status`를 인자 없이 부른 목록 화면. 한 줄에 한 실행 */
-export function renderRunLine(runId: string, state: ReplayState): string {
+/**
+ * `zannabi status`를 인자 없이 부른 목록 화면. 한 줄에 한 실행.
+ *
+ * **저널이 없는 실행을 "끊김"이라 부르지 않는다.** 저널을 쓰기 전 판으로 돌린 실행이
+ * 남아 있는 저장소가 실제로 있고(실전에서 24건), 그것들은 대개 정상 종료됐다.
+ * 재생할 이벤트가 없는 것과 이벤트가 도중에 끊긴 것은 다른 사실이다 —
+ * 모르는 것을 아는 척하면 옛 실행 전부가 죽은 실행처럼 보인다.
+ */
+export function renderRunLine(runId: string, state: ReplayState, hasJournal = true): string {
+  if (!hasJournal) return `· ${runId}  저널 없음 (저널을 쓰기 전 판으로 돌린 실행입니다)`
   const mark = state.phase === 'finished' ? (state.status === 'success' ? '✅' : '❌') : '⏳'
   const what =
     state.phase === 'finished' ? (state.status ?? '?') : PHASE_TEXT[state.phase]

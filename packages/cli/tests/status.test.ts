@@ -85,6 +85,20 @@ test('중단된 실행은 재개 안내와 함께, 단정하지 않고 보고된
   expect(out).toContain('저널이 말할 수 없습니다')
 }, 20_000)
 
+test('저널 없는 옛 실행을 "끊김"이라 부르지 않는다', async () => {
+  // 저널을 쓰기 전 판으로 돌린 실행이 남아 있는 저장소가 실제로 있다(실전에서 24건).
+  // 그것들은 대개 정상 종료됐다 — 재생할 이벤트가 없는 것과 도중에 끊긴 것은 다른 사실이다
+  const cwd = await runOnce()
+  const found = resolveRun(cwd)
+  if (!found.ok) throw new Error('run not found')
+  await Bun.$`rm ${join(found.dir, JOURNAL_FILENAME)}`.quiet()
+
+  const { code, out } = await cli(['status', '--cwd', cwd])
+  expect(code).toBe(0)
+  expect(out).toContain('저널 없음')
+  expect(out).not.toContain('이벤트가 끊김')
+}, 20_000)
+
 test('증거 손실은 상태 화면에서 판정보다 먼저 눈에 띈다', () => {
   const state = replay(
     parseJournal(

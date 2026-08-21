@@ -110,8 +110,10 @@ async function status(cwd: string, name?: string) {
       console.error(`[zannabi] ${RUNS_DIR} 에 실행 기록이 없습니다`)
       process.exit(1)
     }
-    for (const runId of runs.slice(0, 20))
-      console.log(renderRunLine(runId, replay(readJournal(`${cwd}/${RUNS_DIR}/${runId}`))))
+    for (const runId of runs.slice(0, 20)) {
+      const events = readJournal(`${cwd}/${RUNS_DIR}/${runId}`)
+      console.log(renderRunLine(runId, replay(events), events.length > 0))
+    }
     if (runs.length > 20) console.log(`... 외 ${runs.length - 20}건`)
     return
   }
