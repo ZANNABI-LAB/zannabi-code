@@ -1,6 +1,6 @@
 import {
   addUsage, emptyUsage, CONFIG_FILENAME,
-  type ConfigChange, type LoopResult, type Usage,
+  type ConfigChange, type EvidenceLoss, type LoopResult, type Usage,
 } from '@zannabi-lab/core'
 
 // diff 캡처는 core로 옮겼다 — 루프가 라운드마다 워킹트리를 찍어야 하기 때문이다.
@@ -39,6 +39,11 @@ export function buildReport(
   result: LoopResult,
   intent: string,
   configChange?: ConfigChange,
+  /**
+   * 저장소가 아는 최신 손실. 루프가 끝난 뒤(최종 diff 저장 등)에도 증거는 사라질 수 있으므로
+   * 결과에 박힌 값보다 이쪽이 최신이다.
+   */
+  losses?: EvidenceLoss[],
 ): string {
   const lines = [
     `# zannabi run report`,
@@ -61,6 +66,25 @@ export function buildReport(
       `- ⚠️ **정체 감지 꺼짐**: stall-limit이 예산 이상이라 이 실행에서는 발동할 수 없었다` +
         ` — 라운드가 제자리였더라도 예산 소진으로 끝난다`,
     )
+
+  // 승격은 조합을 바꾼 사건이다 — 이 줄이 없으면 리포트의 runtime 표기가 실제로 무엇이
+  // 돌았는지를 잘못 말하게 되고, 조합별 비용 비교가 조용히 오염된다
+  if (result.escalation)
+    lines.push(
+      `- ⬆️ **승격**: 라운드 ${result.escalation.round}부터 실행 턴이` +
+        ` \`${result.escalation.from}\` → \`${result.escalation.to}\`` +
+        ` (사유: 정체 — 변경분과 게이트 결과가 연속으로 동일)`,
+    )
+
+  // 증거가 사라졌다는 사실은 리포트 맨 위에 온다. 이 실행의 다른 모든 주장이
+  // 그만큼 덜 뒷받침된다는 뜻이라, 아래쪽 절에 묻히면 안 된다
+  const lost = losses && losses.length > 0 ? losses : result.evidenceLoss
+  if (lost && lost.length > 0) {
+    lines.push(
+      `- 🚨 **증거 소실 ${lost.length}건** — 실행 도중 증거가 사라졌다.` +
+        ` 작업하는 에이전트가 \`.zannabi/\`를 지울 수 있다(실측 사례가 있다)`,
+    )
+  }
 
   const last = result.rounds.at(-1)
   lines.push(``, `## Gates (최종 라운드)`, ``)
@@ -142,10 +166,57 @@ export function buildReport(
     )
   }
 
+  // 무엇이 언제 사라졌는지. "증거가 없다"는 주장 자체가 증거를 남겨야 한다
+  if (lost && lost.length > 0) {
+    lines.push(``, `## 증거 소실`, ``)
+    for (const l of lost) lines.push(`- \`${l.target}\` — ${l.at}`)
+    lines.push(
+      ``,
+      `> 되살려 이어갔지만 **그 사이의 증거는 남아 있지 않다.** 게이트가 통과했더라도` +
+        ` 통과의 근거가 지워진 실행이므로 완료로 보지 않는다(\`evidence-lost\`).` +
+        ` 실측 사례: 작업 지시가 "파일을 만들지 마라"였고 러너의 증거 디렉토리는 untracked` +
+        ` 새 파일이라, 에이전트가 그것을 지시의 대상으로 읽었다.`,
+    )
+  }
+
   // 어느 턴도 사용량을 보고하지 않았으면 표를 만들지 않는다 — 0으로 채운 표는
   // "공짜로 돌았다"로 읽히고, 그건 모른다는 사실과 다르다
   const reported = result.usage && result.usage.plan.turns + result.usage.exec.turns > 0
   if (result.usage && reported) lines.push(``, `## Usage`, ``, ...usageLines(result.usage))
+
+  // 비용 상한을 건 실행에서는 **상한이 무엇을 봤는지**까지 적는다. 금액만 적으면
+  // 비용을 보고하지 않는 런타임이 섞인 실행에서 "상한 안에서 끝났다"가 거짓이 된다
+  if (result.cost) {
+    const c = result.cost
+    lines.push(``, `## 비용 상한`, ``)
+    lines.push(
+      `- 상한 **$${c.limitUsd}** · 보고된 누적 ` +
+        `**${c.spentUsd === undefined ? '-' : `$${c.spentUsd.toFixed(4)}`}**` +
+        `${c.exceeded ? ' → 🛑 도달해 중단' : ''}`,
+    )
+    if (c.coverage === 'full')
+      lines.push(`- ✅ 자원을 쓴 모든 턴이 비용을 보고했다 — 상한이 지출 전체를 봤다`)
+    if (c.coverage === 'partial')
+      lines.push(
+        `- ⚠️ **상한이 지출의 일부만 봤다** — 계획/실행 중 한쪽이 비용을 보고하지 않는다.` +
+          ` 위 금액이 상한 아래라도 실제 지출은 그보다 크다`,
+      )
+    if (c.coverage === 'not-run')
+      lines.push(
+        `- 한 턴도 돌지 않아 상한이 관여할 일이 없었다 — 이 실행은 런타임의 비용 보고 여부에` +
+          ` 대해 아무것도 말하지 않는다`,
+      )
+    if (c.coverage === 'none')
+      lines.push(
+        `- 🚨 **상한이 걸리지 않았다** — 이 실행의 런타임이 비용을 보고하지 않는다(codex가 그렇다).` +
+          ` 상한을 건 사실이 지출을 제한했다는 뜻이 아니다`,
+      )
+    lines.push(
+      ``,
+      `> 라운드 예산(\`--budget\`)은 지출의 상한이 아니다 — 실측에서 같은 조합의 1라운드가` +
+        ` $1.64~$4.53으로 2.8배 흩어졌다. 두 축은 서로를 대신하지 못한다.`,
+    )
+  }
 
   // 라운드별 diff 해시. 어느 라운드에서 파일이 실제로 달라졌는지가 한눈에 보여야
   // no-progress 판정을 사람이 사후 검증할 수 있다

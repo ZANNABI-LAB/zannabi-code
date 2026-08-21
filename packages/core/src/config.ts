@@ -21,6 +21,8 @@ export const ConfigSchema = z.object({
   /** 항상 걸리는 게이트. 여기 적힌 것은 사용자 게이트로 취급한다 — 완료의 정의이기 때문이다 */
   gates: z.array(GateSchema.extend({ source: z.literal('user').default('user') })).optional(),
   budget: z.number().int().min(1).optional(),
+  /** 비용 상한(USD). 예산과 다른 축이다 — 라운드 수는 지출을 제어하지 못한다 */
+  maxCostUsd: z.number().positive().optional(),
   agent: z.string().optional(),
   model: z.string().optional(),
   planAgent: z.string().optional(),
@@ -31,6 +33,8 @@ export const ConfigSchema = z.object({
   verifyRepeat: z.number().int().min(1).optional(),
   gateTimeoutMs: z.number().int().positive().optional(),
   rejectSuggested: z.boolean().optional(),
+  /** 정체 시 실행 턴을 계획 런타임으로 승격할지. 기본 꺼짐 — 아직 실전에서 검증되지 않았다 */
+  escalate: z.boolean().optional(),
 })
 export type Config = z.infer<typeof ConfigSchema>
 

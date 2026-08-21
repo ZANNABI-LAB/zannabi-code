@@ -1,9 +1,23 @@
 import type { Evidence } from './goal'
 
+/**
+ * 러너의 증거 저장소를 건드리지 말라는 한 줄.
+ *
+ * 감지(`store.ts`)가 본체고 이건 예방이다 — 지시는 강제가 아니므로 이것만 믿을 수 없다.
+ * 다만 실측에서 지운 에이전트는 **어긋난 것이 아니라 지시를 따른 것**이었다(작업 지시가
+ * "파일을 만들지 마라"였고 `.zannabi/`는 untracked 새 파일이었다). 그런 오해는 한 줄로 막힌다.
+ */
+const PROTECT_EVIDENCE =
+  'The `.zannabi/` directory is the runner\'s evidence store, not part of the project. ' +
+  'Never delete, move, clean, or commit it, even when asked to keep the working tree clean ' +
+  'or to avoid creating files.'
+
 export function planPrompt(intent: string): string {
   return `You are planning a coding task. Do NOT modify any files yet.
 
 Task: ${intent}
+
+${PROTECT_EVIDENCE}
 
 1. Write a short implementation plan (numbered steps).
 2. Propose verification gates: shell commands that prove the task is done
@@ -19,7 +33,7 @@ export function executePrompt(plan: string, feedback?: string): string {
   const retry = feedback
     ? `\n\nPrevious attempt FAILED verification. Evidence:\n${feedback}\n\nFix the issues and try again.`
     : ''
-  return `Execute this plan. Modify files as needed.\n\nPlan:\n${plan}${retry}`
+  return `Execute this plan. Modify files as needed.\n\n${PROTECT_EVIDENCE}\n\nPlan:\n${plan}${retry}`
 }
 
 /**

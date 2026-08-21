@@ -96,6 +96,7 @@ async function main() {
     options: {
       cwd: { type: 'string', default: '.' },
       budget: { type: 'string' },
+      'max-cost': { type: 'string' },
       gate: { type: 'string', multiple: true, default: [] },
       model: { type: 'string' },
       agent: { type: 'string' },
@@ -107,6 +108,7 @@ async function main() {
       'verify-repeat': { type: 'string' },
       'gate-timeout': { type: 'string' },
       'no-suggest': { type: 'boolean' },
+      escalate: { type: 'boolean' },
       profile: { type: 'string' },
       yes: { type: 'boolean', default: false },
     },
@@ -119,6 +121,8 @@ async function main() {
       '  생성-검증 분리: [--plan-agent/--plan-model] [--exec-agent/--exec-model]\n' +
       `  루프 계측: [--stall-limit N] (기본 ${DEFAULT_STALL_LIMIT}, 0이면 끔)` +
       ` [--verify-repeat N] (통과 재확인 횟수, 기본 ${DEFAULT_VERIFY_REPEAT})\n` +
+      '  비용 상한: [--max-cost <USD>] (예산과 별개 축 — 라운드 수는 지출을 제어하지 못한다)\n' +
+      '  승격: [--escalate] (정체하면 실행 턴을 계획 런타임으로 올려 한 번 더 · 기본 꺼짐)\n' +
       '  게이트 고정: [--no-suggest] (제안 게이트 거부)' +
       ` [--gate-timeout <ms>] (기본 ${DEFAULT_GATE_TIMEOUT_MS})\n` +
       `  조합 프리셋: [--profile ${PROFILE_NAMES.join('|')}]\n` +
@@ -188,7 +192,22 @@ async function main() {
     return value
   }
 
+  /**
+   * 비용 상한만 정수가 아니다 — 돈은 $2.50처럼 쪼개진다.
+   * 0은 "상한 없음"이 아니라 "한 푼도 쓰지 마라"로 읽히므로 받지 않는다. 안 쓰면 없는 것이다.
+   */
+  function usd(raw: string | undefined, fallback?: number): number | undefined {
+    if (raw === undefined) return fallback
+    const value = Number(raw)
+    if (!Number.isFinite(value) || value <= 0) {
+      console.error(`[zannabi] --max-cost는 0보다 큰 금액이어야 합니다: ${raw}`)
+      process.exit(1)
+    }
+    return value
+  }
+
   const budget = number('budget', values.budget, config.budget ?? profile.budget ?? 3, 1)
+  const maxCostUsd = usd(values['max-cost'], config.maxCostUsd)
   const stallLimit = number('stall-limit', values['stall-limit'], config.stallLimit ?? DEFAULT_STALL_LIMIT, 0)
   const verifyRepeat = number(
     'verify-repeat',
@@ -198,6 +217,7 @@ async function main() {
   )
   const gateTimeoutMs = number('gate-timeout', values['gate-timeout'], config.gateTimeoutMs ?? DEFAULT_GATE_TIMEOUT_MS, 1)
   const rejectSuggested = values['no-suggest'] ?? config.rejectSuggested ?? false
+  const escalate = values.escalate ?? config.escalate ?? false
 
   let userGates: Gate[]
   try {
@@ -222,6 +242,7 @@ async function main() {
     intent,
     userGates,
     budget,
+    maxCostUsd,
     cwd,
     adapter: pickAdapter(plan),
     // 조합이 같으면 어댑터 하나만 쓴다 — 같은 런타임인데 세션이 끊기면 손해다
@@ -231,6 +252,7 @@ async function main() {
     verifyRepeat,
     gateTimeoutMs,
     rejectSuggested,
+    escalate,
     profile: profileName,
     store,
     approve: values.yes ? approveAutomatically : approveViaTerminal,
@@ -240,7 +262,8 @@ async function main() {
   const configChange = compareConfig(configBefore, cwd)
   const diff = await captureDiff(cwd)
   if (diff) store.writeDiff(diff)
-  const report = buildReport(result, intent, configChange)
+  // 루프가 끝난 뒤 쓴 것(최종 diff)까지 포함한 최신 손실을 싣는다
+  const report = buildReport(result, intent, configChange, store.losses)
   store.writeReport(report)
 
   console.log(`\n${report}\n`)
@@ -258,10 +281,44 @@ async function main() {
       '(이전 실행이 남긴 상태를 다음 실행이 함께 세는 종류). 재확인 증거의 회차별 결과를 ' +
       '먼저 보고, 재확인이 과하면 --verify-repeat 1로 끄세요.',
     )
+  if (store.losses.length > 0)
+    console.error(
+      `[zannabi] 🚨 실행 도중 증거가 ${store.losses.length}건 사라졌습니다 — 작업하는 에이전트가 ` +
+      '`.zannabi/`를 지울 수 있습니다. 되살려 이어갔지만 그 사이의 증거는 없습니다. ' +
+      '리포트의 「증거 소실」 절을 확인하세요.',
+    )
+  if (result.status === 'evidence-lost')
+    console.error(
+      '[zannabi] 게이트는 전부 통과했지만 증거가 사라져 완료로 보지 않았습니다. ' +
+      '증거 없으면 완료가 아니라는 것이 이 도구의 전제입니다 — 다시 돌려 증거를 남기세요.',
+    )
+  if (result.status === 'cost-exhausted')
+    console.error(
+      '[zannabi] 비용 상한에 도달해 멈췄습니다. 여기까지의 작업물은 워킹트리에 그대로 있고 ' +
+      '증거도 남아 있습니다 — 이어서 하려면 --max-cost를 올려 다시 돌리세요. ' +
+      '라운드 예산(--budget)은 지출을 제어하지 못하므로 두 축을 함께 보세요.',
+    )
+  if (result.cost && result.cost.coverage !== 'full' && result.cost.coverage !== 'not-run')
+    console.error(
+      result.cost.coverage === 'none'
+        ? '[zannabi] 이 실행의 런타임이 비용을 보고하지 않아 --max-cost가 걸리지 않았습니다.'
+        : '[zannabi] --max-cost가 지출의 일부만 봤습니다 — 한쪽 런타임이 비용을 보고하지 않습니다. ' +
+          '보고된 금액이 상한 아래여도 실제 지출은 그보다 큽니다.',
+    )
   if (result.status === 'no-progress')
     console.error(
       '[zannabi] 진전이 없어 예산을 남기고 중단했습니다. ' +
-      '게이트가 실제로 달성 가능한지 보고, 필요하면 --stall-limit으로 조절하세요.',
+      '게이트가 실제로 달성 가능한지 보고, 필요하면 --stall-limit으로 조절하세요.' +
+      (result.escalation
+        ? ' 실행 턴을 승격한 뒤에도 같은 자리였으므로, 남은 의심은 실행 모델이 아니라 게이트 쪽입니다.'
+        : escalate
+          ? ''
+          : ' 실행 모델을 낮춰 돌린 것이라면 --escalate로 정체 시 계획 런타임으로 올려 볼 수 있습니다.'),
+    )
+  if (result.escalation)
+    console.log(
+      `[zannabi] 실행 턴이 승격됐습니다: ${result.escalation.from} → ${result.escalation.to}` +
+      ` (라운드 ${result.escalation.round}부터). 이 실행의 비용은 처음 고른 조합의 비용이 아닙니다.`,
     )
   if (result.stallDead && result.status === 'budget-exhausted')
     console.error(
