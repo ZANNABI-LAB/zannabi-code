@@ -63,6 +63,7 @@ append-only JSONL. **한 파일이 세 가지를 겸한다** — tail하면 실�
 | `exec-finished` | 실행 턴 종료(게이트 전) | `round` `ok` `usage?` `sessionId?` `model?` |
 | `gate-started` | 게이트 하나 시작 | `round` `phase`(verify/recheck) `gate` `cmd` |
 | `gate-result` | 게이트 하나 종료 | `round` `phase`(verify/recheck) `evidence` |
+| `recheck-suppressed` | 재확인 판정의 한 축을 껐음 | `round` `cause` `suppressed` |
 | `round-finished` | 라운드 종료 | `round` `revision` `repeatOf?` `allPass` |
 | `cost-updated` | 누적 지출 갱신 | `plan` `exec` `spentUsd?` `coverage?` |
 | `evidence-lost` | 증거가 사라짐 | `target` |
@@ -89,6 +90,12 @@ append-only JSONL. **한 파일이 세 가지를 겸한다** — tail하면 실�
   **리포트는 아는데 저널은 모르는 상태**가 된다 — 실측에서 정확히 그 일이 있었고,
   저널만 읽는 소비자에게는 조합 비교 축이 통째로 비어 보였다.
   소비자는 `model`을 만나면 `run-started`의 `runtime`을 그 값으로 고쳐 읽어야 한다.
+- **`recheck-suppressed`가 있는 이유**: 격리된 새 워킹트리의 첫 라운드는 첫 회에만 콜드
+  컴파일이 얹혀 재확인 비율이 구조적으로 낮게 나온다. 그래서 그 축을 끄는데, **끄는 것의
+  증상이 "경고가 없다"**이다 — 그 모양은 *억제가 일했다*와 *애초에 걸릴 자리가 없었다*를
+  구분하지 못한다. 억제가 잘못 걸려 진짜 캐시 스킵을 삼켜도 아무 데도 남지 않는다는 뜻이고,
+  그쪽이 거짓 초록으로 가는 경로다. **삼킨 것이 없어도(`suppressed`가 빈 배열) 줄은 남는다** —
+  축을 껐다는 사실 자체가 사후 판단의 재료다.
 - **`raceId`가 있는 이유**: best-of-N의 조 셋이 없으면 서로 무관한 실행 셋으로 보인다.
   같은 비교에 속했다는 사실이 사라지면 조합별 실적을 모으는 측정이 성립하지 않는다.
 - **`cost-updated`가 따로 있는 이유**: 사용량 이벤트를 합치면 나오는 값이지만, 소비자가

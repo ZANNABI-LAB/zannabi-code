@@ -1,6 +1,6 @@
 import { test, expect } from 'bun:test'
 import type { Evidence } from '../src/goal'
-import { recheckSuspects } from '../src/recheck'
+import { recheckSuspects, suppressedByCold } from '../src/recheck'
 
 const ev = (
   gate: string,
@@ -108,4 +108,33 @@ test('차가운 작업 공간의 첫 회는 비율 판정에서 뺀다', () => {
   expect(recheckSuspects(first, again, { coldFirstRun: true })).toEqual([])
   // 콜드가 아니면 그대로 짚는다 — 축 자체를 없앤 것이 아니다
   expect(recheckSuspects(first, again)).toHaveLength(1)
+})
+
+test('억제가 삼킨 것을 따로 센다 — 경고 0건의 뜻이 갈려야 한다', () => {
+  // 2차 실측의 모양: 억제가 실제로 일했다
+  const swallowed = suppressedByCold(
+    [ev('build', 52_635, 'pass', './gradlew build')],
+    [ev('build', 19_737, 'pass', './gradlew build')],
+  )
+  expect(swallowed).toEqual([
+    { gate: 'build', firstMs: 52_635, recheckMs: 19_737, reason: 'ratio' },
+  ])
+
+  // 3차 실측의 모양: 워크트리로 돌았지만 비율 0.57이라 애초에 걸릴 자리가 아니었다.
+  // 둘 다 "경고 0건"으로 끝나지만 저널에서는 갈린다
+  expect(
+    suppressedByCold(
+      [ev('build', 36_245, 'pass', './gradlew build')],
+      [ev('build', 20_649, 'pass', './gradlew build')],
+    ),
+  ).toEqual([])
+})
+
+test('억제와 무관한 축은 삼킨 것으로 세지 않는다', () => {
+  // clean-too-fast는 콜드와 무관하게 유효하므로 억제가 끄지 않는다.
+  // 그것까지 "삼켰다"고 세면 저널이 없던 억제를 보고하게 된다
+  const first = [ev('unit', 2_000, 'pass', './gradlew cleanTest test')]
+  const again = [ev('unit', 900, 'pass', './gradlew cleanTest test')]
+  expect(recheckSuspects(first, again, { coldFirstRun: true })).toHaveLength(1)
+  expect(suppressedByCold(first, again)).toEqual([])
 })

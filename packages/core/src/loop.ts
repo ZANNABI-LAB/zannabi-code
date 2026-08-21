@@ -5,7 +5,7 @@ import { runGate, preflightGates, type GateWarning } from './gates'
 import { planPrompt, executePrompt, failureSummary } from './prompts'
 import { captureRevision } from './revision'
 import { roundSignature, repeatOf, shouldStop, stallDetectionDead, DEFAULT_STALL_LIMIT } from './progress'
-import { recheckGates, recheckSuspects, DEFAULT_VERIFY_REPEAT } from './recheck'
+import { recheckGates, recheckSuspects, suppressedByCold, DEFAULT_VERIFY_REPEAT } from './recheck'
 import {
   checkCost,
   costCoverage,
@@ -685,10 +685,18 @@ async function runLoopWith(
         // 결과가 갈리지 않았더라도 재확인이 실제로 다시 돌았는지는 별개 질문이다.
         // 명령어 문자열을 보는 사전 휴리스틱은 실측에서 오탐만 냈다. 캐시로 스킵됐는지는
         // 실제로 얼마나 걸렸는지로 판단한다
-        const suspects = recheckSuspects(evidence, recheck.evidence, {
-          // 콜드 컴파일이 첫 회에만 얹히는 것은 라운드 1뿐이다
-          coldFirstRun: opts.coldWorkspace === true && attempt === 1,
-        })
+        // 콜드 컴파일이 첫 회에만 얹히는 것은 라운드 1뿐이다
+        const coldFirstRun = opts.coldWorkspace === true && attempt === 1
+        const suspects = recheckSuspects(evidence, recheck.evidence, { coldFirstRun })
+        // 축을 껐다면 그 사실을 남긴다. 삼킨 게 없어도 남기는 이유는
+        // `suppressedByCold`의 주석에 있다 — 경고 0건의 뜻이 저널에서 갈려야 한다
+        if (coldFirstRun)
+          opts.store.appendJournal({
+            type: 'recheck-suppressed',
+            round: attempt,
+            cause: 'cold-first-run',
+            suppressed: suppressedByCold(evidence, recheck.evidence),
+          })
         if (suspects.length > 0) {
           round.recheckSuspects = suspects
           for (const s of suspects)

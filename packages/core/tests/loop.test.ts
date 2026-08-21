@@ -5,7 +5,7 @@ import { join } from 'node:path'
 import type { AgentResult, AgentAdapter } from '../src/adapter'
 import type { GateWarning } from '../src/gates'
 import { runLoop, type LoopOptions } from '../src/loop'
-import { RunStore } from '../src/store'
+import { RunStore, readJournal } from '../src/store'
 import { FakeAdapter, fakeResult } from '../src/testing'
 
 const planText = (cmd: string) =>
@@ -483,6 +483,38 @@ test('재확인이 첫 회보다 극단적으로 짧으면 통과시키되 정�
   expect(suspects[0].recheckMs).toBeLessThan(suspects[0].firstMs * 0.4)
   expect(logs.some(m => m.includes('재확인 경고'))).toBe(true)
 }, 30_000) // 게이트가 실제로 5.2초를 쓰므로 기본 타임아웃(5s)으로는 모자란다
+
+// 같은 게이트를 콜드 첫 회로 돌린다 — 경고는 없어야 하지만, 억제가 일했다는 사실은
+// 저널에 남아야 한다. 3차 실측이 막힌 지점이 정확히 여기였다
+test('콜드 첫 회 억제는 짚지 않되 무엇을 삼켰는지 저널에 남긴다', async () => {
+  const cwd = mkdtempSync(join(tmpdir(), 'zannabi-cold-'))
+  const marker = join(cwd, 'built.marker')
+  const logs: string[] = []
+  const store = new RunStore(cwd, 'cold')
+  const adapter = new FakeAdapter([
+    fakeResult(planText(`test -f ${marker} || sleep 5.2; touch ${marker}`)),
+    fakeResult('했음'),
+  ])
+  const result = await runLoop(options({
+    adapter, cwd, store,
+    budget: 1, verifyRepeat: 2, gateTimeoutMs: 30_000,
+    coldWorkspace: true,
+    log: m => logs.push(m),
+  }))
+
+  expect(result.status).toBe('success')
+  // 억제가 일했다 — 사람에게는 아무 말도 하지 않는다
+  expect(result.rounds[0].recheckSuspects ?? []).toEqual([])
+  expect(logs.some(m => m.includes('재확인 경고'))).toBe(false)
+
+  // 그러나 저널은 무엇을 삼켰는지 안다
+  const events = readJournal(store.dir)
+  const suppressed = events.filter(e => e.type === 'recheck-suppressed')
+  expect(suppressed).toHaveLength(1)
+  expect(suppressed[0]).toMatchObject({ round: 1, cause: 'cold-first-run' })
+  expect(suppressed[0].suppressed).toHaveLength(1)
+  expect(suppressed[0].suppressed[0].gate).toBe('g')
+}, 30_000)
 
 test('정체 감지가 예산에 눌려 죽는 조합이면 승인 전에 말한다', async () => {
   const logs: string[] = []

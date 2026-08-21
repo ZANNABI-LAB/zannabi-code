@@ -16,7 +16,9 @@
  * 버리면 되고, 진행 중인 상태가 이벤트로 남는다.
  */
 import { z } from 'zod'
-import { EvidenceSchema, RevisionSchema, GateSchema, DroppedGateSchema } from './goal'
+import {
+  EvidenceSchema, RevisionSchema, GateSchema, DroppedGateSchema, RecheckSuspectSchema,
+} from './goal'
 
 /**
  * 저널이 따르는 계약 판. 소비자는 이 값을 보고 읽을 수 있는지 판단한다.
@@ -167,6 +169,23 @@ export const JournalEventSchema = z.discriminatedUnion('type', [
     /** 첫 검증인지 통과 재확인인지. 재확인 결과가 원본 증거를 덮어쓰면 안 된다 */
     phase: z.enum(['verify', 'recheck']),
     evidence: EvidenceSchema,
+  }),
+  /**
+   * 이 라운드에서 **재확인 판정의 한 축을 껐다**. 격리된 새 워킹트리의 첫 라운드는
+   * 첫 회에만 콜드 컴파일이 얹혀 비율이 구조적으로 낮게 나오므로 그 축이 오탐만 낸다.
+   *
+   * **억제가 아무것도 삼키지 않아도 남긴다**(`suppressed`가 빈 배열). 축을 껐다는 사실
+   * 자체가 사후 판단의 재료다 — 이 줄이 없으면 경고 0건이 *억제가 일한 것*인지
+   * *걸릴 자리가 없던 것*인지 저널만 보고 가를 수 없다.
+   */
+  z.object({
+    ...base,
+    type: z.literal('recheck-suppressed'),
+    round: z.number().int().positive(),
+    /** 무엇이 축을 껐나. 지금은 하나뿐이지만, 사유를 안 적으면 나중에 늘 때 구분이 안 된다 */
+    cause: z.literal('cold-first-run'),
+    /** 억제가 없었다면 짚였을 후보. 비어 있으면 애초에 걸릴 자리가 아니었다는 뜻이다 */
+    suppressed: z.array(RecheckSuspectSchema),
   }),
   z.object({
     ...base,

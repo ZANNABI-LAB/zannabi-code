@@ -141,6 +141,21 @@ export function recheckSuspects(
   return suspects
 }
 
+/**
+ * 콜드 첫 회 억제가 **삼킨** 후보 — 억제가 없었다면 비율 축으로 짚였을 게이트들.
+ *
+ * 억제는 축을 끄는 것이라 먹었을 때의 증상이 "경고가 없다"이다. 그 모양은
+ * *억제가 일했다*와 *애초에 걸릴 자리가 아니었다*를 구분하지 못한다 — 3차 실측이
+ * 정확히 여기서 막혔다(워크트리로 돌렸지만 비율이 0.57이라 판단할 재료가 없었다).
+ *
+ * 그래서 억제된 것을 따로 세어 저널에 남긴다. **검증을 위해서가 아니라 관측을 위해서다**:
+ * 억제가 잘못 걸려 진짜 캐시 스킵을 삼켜도, 이 값이 없으면 그 사실이 아무 데도 남지 않는다.
+ * 그쪽이 거짓 초록으로 가는 경로다.
+ */
+export function suppressedByCold(first: Evidence[], recheck: Evidence[]): RecheckSuspect[] {
+  return recheckSuspects(first, recheck).filter(s => s.reason === 'ratio')
+}
+
 export interface RecheckResult {
   /** 추가 실행에서 나온 증거. 원본을 덮어쓰지 않고 나란히 쌓인다 */
   evidence: Evidence[]

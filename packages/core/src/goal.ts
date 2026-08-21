@@ -138,6 +138,24 @@ export type Evidence = z.infer<typeof EvidenceSchema>
  * 라운드를 명시적 레코드로 만든 이유: 증거만 나열하면 "몇 라운드째의 증거인지"와
  * "그 사이 파일이 바뀌었는지"가 사라진다. no-progress 판정은 정확히 그 둘을 본다.
  */
+/**
+ * 재확인이 실제로 다시 돌지 않았을 수 있다는 정황 한 건.
+ *
+ * 라운드 요약과 저널 이벤트가 **같은 모양을 쓴다** — 둘이 갈리면 리포트가 말하는 정황과
+ * 저널에 남은 정황이 다른 것이 되고, 사후에 어느 쪽을 믿을지 정할 수 없게 된다.
+ */
+export const RecheckSuspectSchema = z.object({
+  gate: z.string(),
+  firstMs: z.number(),
+  recheckMs: z.number(),
+  /**
+   * 무엇이 이 정황을 만들었나. 이 필드가 없으면 리포트가 두 사유를 한 문장으로
+   * 섞고, 실측에서 재확인이 **더 느렸던** 행에 "훨씬 빨리 끝났다"는
+   * 사실과 반대인 설명이 붙었다.
+   */
+  reason: z.enum(['ratio', 'clean-too-fast']).default('ratio'),
+})
+
 export const RoundSchema = z.object({
   round: z.number().int().positive(),
   revision: RevisionSchema,
@@ -155,21 +173,7 @@ export const RoundSchema = z.object({
    * 재확인이 첫 회보다 극단적으로 짧게 끝난 게이트. 통과를 무르지는 않지만,
    * "재확인했다"는 말이 실제로 무엇을 확인한 것인지 사람이 따져 볼 근거를 남긴다.
    */
-  recheckSuspects: z
-    .array(
-      z.object({
-        gate: z.string(),
-        firstMs: z.number(),
-        recheckMs: z.number(),
-        /**
-         * 무엇이 이 정황을 만들었나. 이 필드가 없으면 리포트가 두 사유를 한 문장으로
-         * 섞고, 실측에서 재확인이 **더 느렸던** 행에 "훨씬 빨리 끝났다"는
-         * 사실과 반대인 설명이 붙었다.
-         */
-        reason: z.enum(['ratio', 'clean-too-fast']).default('ratio'),
-      }),
-    )
-    .optional(),
+  recheckSuspects: z.array(RecheckSuspectSchema).optional(),
 })
 export type Round = z.infer<typeof RoundSchema>
 
