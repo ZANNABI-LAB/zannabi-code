@@ -125,18 +125,28 @@ export interface RuntimeLabels {
   exec: string
 }
 
+/**
+ * 실행이 끝날 수 있는 모든 방식.
+ *
+ * 타입이 아니라 **값**으로 두는 이유: 계약 문서가 이 목록을 그대로 싣는데, 타입은 런타임에
+ * 없어서 문서와 코드가 갈렸는지 확인할 방법이 없다. 값이면 테스트가 대조할 수 있다.
+ */
+export const RUN_STATUSES = [
+  'success',
+  'budget-exhausted',
+  'aborted',
+  'env-error',
+  'agent-error',
+  'no-gates',
+  'no-progress',
+  'unreproduced-pass',
+  'cost-exhausted',
+  'evidence-lost',
+] as const
+export type RunStatus = (typeof RUN_STATUSES)[number]
+
 export interface LoopResult {
-  status:
-    | 'success'
-    | 'budget-exhausted'
-    | 'aborted'
-    | 'env-error'
-    | 'agent-error'
-    | 'no-gates'
-    | 'no-progress'
-    | 'unreproduced-pass'
-    | 'cost-exhausted'
-    | 'evidence-lost'
+  status: RunStatus
   attempts: number
   /** 라운드별 기록. 각 라운드가 어떤 리비전을 검사했고 앞 라운드의 반복인지까지 담는다 */
   rounds: Round[]

@@ -6,7 +6,7 @@
 
 [![license](https://img.shields.io/badge/license-Apache--2.0-blue)](LICENSE)
 [![runtime](https://img.shields.io/badge/runtime-Bun-black)](https://bun.sh)
-![tests](https://img.shields.io/badge/tests-255%20passing-brightgreen)
+![tests](https://img.shields.io/badge/tests-262%20passing-brightgreen)
 
 > **Shake the branch before you cross.** — 잔나비는 건너기 전에 가지를 흔들어본다
 
@@ -400,6 +400,31 @@ codex의 `input_tokens`(566,030)는 `cached_input_tokens`(504,576)를 **포함�
 `diff.patch` 는 **신규 파일을 포함**한다. 이를 위해 인덱스가 필요하지만 러너는 대상 저장소의
 인덱스를 건드리지 않는다 — 실제 인덱스를 임시 파일로 복사해 쓰므로 스테이징 상태는 그대로다.
 
+## 계약 — 다른 도구가 이 러너를 읽는 법
+
+이 러너가 밖으로 내보이는 것은 **[러너 계약 v1](docs/contract-v1.md)** 에 규정돼 있다.
+파일 · 저널 · 능력 신고 셋이고, 소비자(대시보드·에디터·CI)는 이것만 알면 러너의 내부를
+몰라도 된다.
+
+```bash
+zannabi manifest   # 이 러너가 무엇을 보고하는지 JSON으로
+```
+
+**능력을 신고하는 이유**: 소비자는 여러 러너를 붙일 수 있어야 하는데 러너마다 보고하는 축이
+다르다. 코딩 에이전트를 직접 구동하는 쪽은 *"3개 실행 중"* 까지밖에 못 말하고, 이 러너는
+*"3개 중 2개 통과, 1개는 증거 소실"* 을 말한다. **화면이 러너를 알 필요는 없다 — 능력을
+물으면 된다.** 검증 축을 신고할 수 있는 러너만 검증 화면을 얻는다.
+
+**신고는 자랑이 아니라 계약이다.** 이 러너의 `cost`는 `full`이 아니라 `partial`로 신고된다 —
+claude는 비용을 주고 codex는 안 주기 때문이고, `full`로 적으면 소비자가 `$0.00`을 그리게 된다.
+
+**단방향이다.** 러너는 보고하고 소비자는 읽는다. 승인·중단·라우팅을 지시하는 통로는 계약에
+없고, 소비자가 띄운 프로세스의 주인은 띄운 쪽이다. 그 대가로 계약이 이 구현에 묶이지 않는다.
+
+계약 문서는 **테스트가 코드와 대조한다** — 저널 어휘 12종, 판정 10종, 능력 축 8개가 문서와
+코드에서 일치하지 않으면 테스트가 깨진다. 증거를 요구하는 도구의 계약 문서가 검증되지 않으면
+앞뒤가 안 맞는다.
+
 ## 패키지
 
 - `@zannabi-lab/core` — 런타임 중립: 스키마, 게이트 러너, PEV 루프, 증거 저장소
@@ -416,7 +441,7 @@ core 변경분은 두 어댑터가 공유하는 프로세스 구동 배관을 �
 ## 개발
 
 ```bash
-bun test        # 255개
+bun test        # 262개
 bun run typecheck
 ```
 

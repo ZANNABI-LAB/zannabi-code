@@ -12,7 +12,7 @@ import {
   DEFAULT_STALL_LIMIT, DEFAULT_VERIFY_REPEAT, DEFAULT_GATE_TIMEOUT_MS, CONFIG_FILENAME,
   listRuns, resolveRun, readJournal, replay, RUNS_DIR, resumability, toRounds,
   createWorktree, removeWorktree, commitRound, commitCount, branchDiff, worktreeUsable, WorktreeError,
-  parseArm,
+  parseArm, manifest,
   type Worktree, type Round,
   type ResumeState,
   type Gate, type GateWarning, type AgentAdapter, type ApprovalDecision, type Profile,
@@ -163,6 +163,13 @@ async function main() {
   // status는 저널만 읽는다 — 설정도 어댑터도 필요 없으므로 run의 준비 과정 앞에서 갈린다
   if (command === 'status') return status(resolve(values.cwd), intent)
 
+  // 능력 신고. 소비자가 이 러너를 붙일 수 있는지, 어떤 화면을 그릴 수 있는지 여기서 판단한다
+  if (command === 'manifest') {
+    const { version } = await import('../package.json')
+    console.log(JSON.stringify(manifest(version), null, 2))
+    return
+  }
+
   // resume은 이름을 생략할 수 있다 — 대개 방금 죽은 그 실행을 이어가려는 것이다
   if (
     (command !== 'run' && command !== 'resume' && command !== 'race') ||
@@ -186,6 +193,7 @@ async function main() {
       '  (조는 실행 턴만 가릅니다 — 계획은 한 번만 세워 공유합니다)\n' +
       '\n이어서 돌기: zannabi resume [<실행 이름 일부>] [--cwd .] [--budget N]\n' +
       '  중단된 지점의 다음 라운드부터 갑니다 — 계획과 승인은 다시 묻지 않습니다\n' +
+      '\n능력 신고: zannabi manifest — 이 러너가 무엇을 보고하는지 JSON으로 (소비자가 읽는다)\n' +
       '\n상태 보기: zannabi status [<실행 이름 일부>] [--cwd .]\n' +
       '  저널(journal.jsonl)만 읽어 재구성합니다 — 실행 중에도, 러너가 죽은 뒤에도 볼 수 있습니다',
     )
