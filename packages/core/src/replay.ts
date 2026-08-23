@@ -86,6 +86,11 @@ export interface ReplayState {
   /** 마지막 이벤트 시각. 실시간 화면이 "언제부터 조용한가"를 재는 값 */
   lastEventAt?: string
   /**
+   * 에이전트가 **스스로 돌린** 명령. 러너가 판정으로 돌린 게이트와 다른 층이다 —
+   * 이 값이 비어 있으면 그 실행의 에이전트는 자기가 쓴 것이 도는지 모르고 썼다.
+   */
+  selfChecks?: string[]
+  /**
    * 이 실행이 몇 번 이어받아졌는지. 0이 아니면 한 번에 돈 실행이 아니다 —
    * 실행 시간과 라운드 수를 비교하는 측정에서 그 차이를 뭉개면 안 된다.
    */
@@ -168,6 +173,9 @@ export function replay(events: JournalEvent[]): ReplayState {
         if (event.sessionId !== undefined) state.sessionId = event.sessionId
         if (event.model !== undefined && state.runtime)
           state.runtime = { ...state.runtime, exec: withModel(state.runtime.exec, event.model) }
+        // 라운드를 넘어 누적한다 — "이 실행에서 에이전트가 몇 번 자기 확인을 했나"가
+        // 물음이지, 라운드별로 나눠 봐야 할 값이 아니다
+        if (event.selfChecks) state.selfChecks = [...(state.selfChecks ?? []), ...event.selfChecks]
         state.phase = 'verifying'
         break
       case 'gate-started':

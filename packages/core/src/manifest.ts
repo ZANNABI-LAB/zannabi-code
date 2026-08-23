@@ -141,11 +141,13 @@ export function manifest(version: string): Manifest {
       isolation: 'full',
       bestOfN: 'full',
       /**
-       * `partial`인 이유: **실행 런타임에 따라 정반대다.**
-       * claude는 `--permission-mode acceptEdits`로 띄우므로 편집은 되고 셸은 승인 대기로
-       * 떨어지는데, 비대화형이라 승인이 오지 않는다 — 실질 `none`이다.
-       * codex는 `--sandbox workspace-write`로 띄우므로 샌드박스 안에서 명령이 돈다.
-       * 비용(claude는 주고 codex는 안 준다)과 같은 모양이고 방향만 반대다.
+       * `partial`인 이유: **여는 것이 게이트 명령뿐이다.**
+       * claude는 승인된 게이트의 `cmd`를 `--allowedTools`의 접두 패턴으로 받아 그것만 돌릴 수
+       * 있다(`--no-exec-shell`로 끌 수 있다). codex는 `--sandbox workspace-write`라
+       * 샌드박스 안에서 더 넓게 돈다 — 여기서도 두 런타임이 갈린다.
+       *
+       * **`full`이 아닌 이유가 능력 부족이 아니라 설계다.** 넓게 열면 러너가 준 권한을
+       * 러너가 설명할 수 없게 된다. 열어 준 범위는 "완료의 정의" 그 자체다.
        */
       execShell: 'partial',
     },

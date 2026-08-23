@@ -4,6 +4,21 @@ export interface AgentRequest {
   prompt: string
   cwd: string
   resumeSessionId?: string
+  /**
+   * 이 턴에서 에이전트가 **스스로 돌려도 되는 명령**. 게이트의 `cmd`가 그대로 들어온다.
+   *
+   * **판정과는 다른 층이다.** 여기서 에이전트가 게이트를 백 번 돌려도 완료는 러너가
+   * 돌린 결과로만 정해진다. 이것은 **자기 확인**이다 — 오타 하나를 라운드 하나
+   * ($2~3)로 갚지 않게 하는 용도다. 실측에서 에이전트가 컴파일 0회로 1,092줄을 썼다.
+   *
+   * **왜 게이트 명령만인가.** 러너가 어차피 돌릴 명령이므로 새 위험이 생기지 않고,
+   * "에이전트는 완료의 정의를 스스로 확인할 수 있다"는 원칙이 그대로 선다.
+   * 넓게 열면 편해지지만 그 순간 러너가 준 권한을 러너가 설명할 수 없게 된다.
+   *
+   * 비어 있거나 없으면 어떤 명령도 열지 않는다. **해석은 어댑터의 몫이다** —
+   * core는 claude의 `--allowedTools`도 codex의 샌드박스도 모른다.
+   */
+  allowedCommands?: string[]
 }
 
 export interface AgentEvent {
@@ -74,6 +89,13 @@ export interface AgentResult {
    * **조합별 비교가 측정의 축인데 그 축이 비어서 기록됐다.**
    */
   model?: string
+  /**
+   * 이 턴에서 에이전트가 **스스로 돌린** 명령들.
+   *
+   * 러너가 판정으로 돌린 게이트와 **다른 층**이다. 이것이 없으면 "에이전트가 자기 코드를
+   * 확인하고 썼는가"를 밖에서 물을 수 없고, 그 질문이 이 축의 값 전부다.
+   */
+  selfChecks?: string[]
 }
 
 /** 어댑터가 구동 가능한 상태인지 — 인증 만료처럼 실행 전에 알 수 있는 것만 본다 */
@@ -99,6 +121,8 @@ export interface ParsedAgentStream {
   events: AgentEvent[]
   errorReason?: string
   usage?: Usage
+  /** 이 턴에서 에이전트가 스스로 돌린 명령. 어댑터가 알아내지 못하면 없다 */
+  selfChecks?: string[]
 }
 
 /**
@@ -171,6 +195,7 @@ export function toAgentResult(
     finalText: parsed.finalText,
     usage: parsed.usage,
     model: parsed.model,
+    selfChecks: parsed.selfChecks,
   }
 
   if (outcome.spawnError)

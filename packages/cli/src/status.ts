@@ -95,6 +95,11 @@ export function renderStatus(state: ReplayState, now: Date = new Date()): string
   const elapsed = elapsedLine(state)
   if (elapsed) lines.push(elapsed)
 
+  // **판정과 다른 층이라는 것이 이 줄의 전부다.** 자체 확인은 완료를 만들지 않는다 —
+  // 에이전트가 게이트를 백 번 돌려도 판정은 아래 라운드 줄의 것이다
+  if (state.selfChecks?.length)
+    lines.push(`에이전트 자체 확인: ${state.selfChecks.length}건 (판정 아님)`)
+
   const budget = state.budget === undefined ? '?' : String(state.budget)
   lines.push(`라운드: ${state.rounds.length}/${budget} 완료`)
   for (const r of state.rounds) {

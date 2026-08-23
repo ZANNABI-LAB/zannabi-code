@@ -14,6 +14,28 @@ export interface ClaudeAdapterOptions {
   idleTimeoutMs?: number
 }
 
+/**
+ * 게이트 명령을 claude의 `--allowedTools` 패턴으로 옮긴다.
+ *
+ * **접두 매칭이다**(`Bash(./gradlew test*)`). 정확히 일치만 허용하면 에이전트가
+ * `--info` 하나만 붙여도 막히고, 그러면 열어 준 의미가 없다. 반대로 명령 이름까지만
+ * 열면(`Bash(./gradlew *)`) 게이트가 아닌 하위 명령까지 딸려 들어온다 —
+ * 이쪽은 러너가 준 권한을 러너가 설명할 수 없게 되는 쪽이라 택하지 않았다.
+ *
+ * 닫는 괄호가 든 명령은 **버린다.** 패턴 문법을 깨뜨려 의도하지 않은 범위가 열릴 수
+ * 있는데, 조용히 넓히느니 그 게이트 하나를 자기 확인에서 빼는 편이 낫다
+ * (판정은 어차피 러너가 한다).
+ */
+export function allowedToolPatterns(commands?: string[]): string[] {
+  const seen = new Set<string>()
+  for (const cmd of commands ?? []) {
+    const trimmed = cmd.trim()
+    if (!trimmed || trimmed.includes(')')) continue
+    seen.add(`Bash(${trimmed}*)`)
+  }
+  return [...seen]
+}
+
 export class ClaudeAdapter implements AgentAdapter {
   readonly name = 'claude'
 
@@ -30,6 +52,11 @@ export class ClaudeAdapter implements AgentAdapter {
       '--verbose',
       '--permission-mode', this.options.permissionMode ?? 'acceptEdits',
     ]
+    // 자기 확인용 명령을 연다. acceptEdits는 편집만 통과시키고 Bash는 승인 대기로
+    // 떨어뜨리는데, 비대화형이라 그 승인은 영영 오지 않는다 — 실측에서 권한 거부 7건이
+    // 전부 `./gradlew`였고 그 턴은 컴파일 한 번 없이 404줄을 썼다
+    const allowed = allowedToolPatterns(request.allowedCommands)
+    if (allowed.length > 0) args.push('--allowedTools', ...allowed)
     if (this.options.model) args.push('--model', this.options.model)
     if (request.resumeSessionId) args.push('--resume', request.resumeSessionId)
     return args

@@ -76,3 +76,42 @@ test('usage가 없는 스트림은 usage 없이 돌아온다', () => {
   )
   expect(parsed.usage).toBeUndefined()
 })
+
+test('에이전트가 스스로 돌린 명령을 뽑는다', () => {
+  const lines = [
+    { type: 'system', subtype: 'init', model: 'claude-opus-5', session_id: 's1' },
+    {
+      type: 'assistant',
+      message: {
+        content: [
+          { type: 'text', text: '빌드해 보겠습니다' },
+          { type: 'tool_use', name: 'Bash', input: { command: './gradlew build' } },
+          { type: 'tool_use', name: 'Edit', input: { file_path: '/x' } },
+        ],
+      },
+    },
+    {
+      type: 'assistant',
+      message: { content: [{ type: 'tool_use', name: 'Bash', input: { command: 'bun test' } }] },
+    },
+    { type: 'result', subtype: 'success', result: '했음' },
+  ]
+  const parsed = parseStreamJson(lines.map(l => JSON.stringify(l)).join('\n'))
+
+  // Bash만 센다 — Edit는 자기 확인이 아니라 작업이다
+  expect(parsed.selfChecks).toEqual(['./gradlew build', 'bun test'])
+})
+
+test('셸을 한 번도 안 쓴 턴은 selfChecks가 아예 없다', () => {
+  // 빈 배열과 없음을 가르는 이유: 저널에 빈 배열을 실으면 "0건 확인함"으로 읽히는데,
+  // 어댑터가 알아내지 못한 것과 에이전트가 안 돌린 것은 다른 사실이다
+  const parsed = parseStreamJson(
+    [
+      { type: 'assistant', message: { content: [{ type: 'text', text: '했음' }] } },
+      { type: 'result', subtype: 'success', result: '했음' },
+    ]
+      .map(l => JSON.stringify(l))
+      .join('\n'),
+  )
+  expect(parsed.selfChecks).toBeUndefined()
+})

@@ -147,6 +147,14 @@ export const JournalEventSchema = z.discriminatedUnion('type', [
     sessionId: z.string().optional(),
     /** 실행 런타임이 실제로 쓴 모델. {@link plan-finished}의 같은 필드와 같은 이유로 있다 */
     model: z.string().optional(),
+    /**
+     * 이 턴에서 에이전트가 **스스로 돌린** 명령. 러너가 판정으로 돌린 게이트와 다른 층이다.
+     *
+     * 없으면 "에이전트가 자기 코드를 확인하고 썼는가"를 저널만 보고 물을 수 없다.
+     * 실측에서 컴파일 0회로 1,092줄을 쓴 턴이 있었는데, 그 사실은 `transcript.jsonl`의
+     * 권한 거부를 사람이 세어야만 드러났다.
+     */
+    selfChecks: z.array(z.string()).optional(),
   }),
   /**
    * 게이트 하나가 시작됐다.

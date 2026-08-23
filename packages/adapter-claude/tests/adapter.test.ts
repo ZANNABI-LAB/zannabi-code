@@ -1,6 +1,6 @@
 import { test, expect } from 'bun:test'
 import { join } from 'node:path'
-import { ClaudeAdapter } from '../src/index'
+import { ClaudeAdapter, allowedToolPatterns } from '../src/index'
 
 const binary = join(import.meta.dir, 'fixtures/fake-claude.sh')
 
@@ -65,4 +65,35 @@ test('행 감시가 정상 실행을 방해하지 않는다', async () => {
   const adapter = new ClaudeAdapter({ binary, idleTimeoutMs: 5_000 })
   const result = await adapter.run({ prompt: 'p', cwd: process.cwd() })
   expect(result.ok).toBe(true)
+})
+
+test('게이트 명령만 열고, 접두 매칭으로 옵션 하나에 막히지 않게 한다', () => {
+  expect(allowedToolPatterns(['./gradlew :csms:test', './gradlew build'])).toEqual([
+    'Bash(./gradlew :csms:test*)',
+    'Bash(./gradlew build*)',
+  ])
+  // 같은 명령이 게이트 둘에 걸려 있어도 패턴은 하나다
+  expect(allowedToolPatterns(['bun test', 'bun test'])).toEqual(['Bash(bun test*)'])
+  // 열 것이 없으면 아무것도 열지 않는다 — 빈 배열이 "전부 허용"이 되면 안 된다
+  expect(allowedToolPatterns([])).toEqual([])
+  expect(allowedToolPatterns(undefined)).toEqual([])
+})
+
+test('패턴 문법을 깨뜨릴 명령은 조용히 넓히지 않고 버린다', () => {
+  // 닫는 괄호가 들어가면 Bash(...) 범위가 의도와 다르게 끝난다.
+  // 넓히느니 그 게이트를 자기 확인에서 빼는 편이 낫다 — 판정은 어차피 러너가 한다
+  expect(allowedToolPatterns(['sh -c "(cd x && make)"', 'bun test'])).toEqual(['Bash(bun test*)'])
+})
+
+test('열어 준 명령이 CLI 인자에 실린다', () => {
+  const adapter = new ClaudeAdapter({ binary })
+  const args = adapter.buildArgs({
+    prompt: 'p', cwd: '/x', allowedCommands: ['bun test'],
+  })
+  expect(args).toContain('--allowedTools')
+  expect(args).toContain('Bash(bun test*)')
+
+  // 안 넘기면 플래그 자체가 없다 — 빈 --allowedTools가 무엇을 뜻하는지는 그쪽 규칙이고,
+  // 우리가 그 해석에 기대면 CLI가 바뀔 때 조용히 넓어질 수 있다
+  expect(adapter.buildArgs({ prompt: 'p', cwd: '/x' })).not.toContain('--allowedTools')
 })

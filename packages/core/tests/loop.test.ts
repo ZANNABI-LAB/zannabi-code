@@ -534,3 +534,40 @@ test('예산이 한계보다 크면 그런 경고를 하지 않는다', async ()
   expect(result.stallDead).toBe(false)
   expect(logs.some(m => m.includes('정체 감지'))).toBe(false)
 })
+
+test('실행 턴에 승인된 게이트 명령만 열어 준다', async () => {
+  const adapter = new FakeAdapter([fakeResult(planText('true')), fakeResult('했음')])
+  await runLoop(options({
+    adapter,
+    userGates: [{ name: 'u', cmd: 'echo ok', timeoutMs: 300000, source: 'user' }],
+  }))
+
+  // 계획 턴에는 열지 않는다 — 계획은 코드를 안 만지므로 확인할 것이 없다
+  expect(adapter.requests[0].allowedCommands).toBeUndefined()
+  // 실행 턴에는 사용자 게이트와 승인된 제안 게이트가 함께 실린다
+  expect(adapter.requests[1].allowedCommands).toEqual(['echo ok', 'true'])
+})
+
+test('--no-exec-shell이면 아무것도 열지 않는다', async () => {
+  const adapter = new FakeAdapter([fakeResult(planText('true')), fakeResult('했음')])
+  await runLoop(options({ adapter, execShell: false }))
+
+  // 빈 배열이 아니라 undefined다 — 어댑터가 "열 것이 없다"와 "열지 말라"를 같게 다루면
+  // 나중에 빈 배열의 뜻이 바뀔 때 조용히 넓어진다
+  expect(adapter.requests[1].allowedCommands).toBeUndefined()
+})
+
+test('에이전트가 스스로 돌린 명령이 저널에 남는다', async () => {
+  const cwd = mkdtempSync(join(tmpdir(), 'zannabi-selfcheck-'))
+  const store = new RunStore(cwd, 'selfcheck')
+  const adapter = new FakeAdapter([
+    fakeResult(planText('true')),
+    { ...fakeResult('했음'), selfChecks: ['bun test', 'bun test'] },
+  ])
+  await runLoop(options({ adapter, cwd, store }))
+
+  const exec = readJournal(store.dir).filter(e => e.type === 'exec-finished')
+  expect(exec).toHaveLength(1)
+  // 같은 명령을 두 번 돌린 것도 두 건이다 — 몇 번 확인했는지가 물음이다
+  expect(exec[0].selfChecks).toEqual(['bun test', 'bun test'])
+})

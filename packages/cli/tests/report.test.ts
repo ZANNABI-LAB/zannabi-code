@@ -328,7 +328,7 @@ test('재개한 실행은 그 사실과 비용의 한계를 함께 적는다', (
     '작업',
     undefined,
     undefined,
-    1,
+    { resumeCount: 1 },
   )
   expect(report).toContain('**resumed**: 1회 이어받음')
   expect(report).toContain('빠져 있다')
@@ -347,8 +347,7 @@ test('리포트가 소요시간을 적는다 — 조합 비교의 축 셋 중 �
     '작업',
     undefined,
     undefined,
-    0,
-    372_000,
+    { elapsedMs: 372_000 },
   )
   expect(report).toContain('**elapsed**: 6분')
   expect(report).not.toContain('멎어 있던')
@@ -359,8 +358,7 @@ test('리포트가 소요시간을 적는다 — 조합 비교의 축 셋 중 �
     '작업',
     undefined,
     undefined,
-    1,
-    372_000,
+    { resumeCount: 1, elapsedMs: 372_000 },
   )
   expect(resumed).toContain('멎어 있던 시간 포함')
 })

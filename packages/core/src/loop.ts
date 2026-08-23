@@ -95,6 +95,17 @@ export interface LoopOptions {
    */
   coldWorkspace?: boolean
   /**
+   * 실행 턴의 에이전트가 **게이트 명령을 스스로 돌릴 수 있게** 한다. 기본 켬.
+   *
+   * **판정과 층이 다르다.** 여기서 무엇을 돌리든 완료는 러너가 돌린 게이트 결과로만
+   * 정해진다. 이것은 자기 확인이다 — 실측에서 실행 턴이 컴파일 0회로 1,092줄을 썼고,
+   * 라운드가 유일한 피드백 루프인 탓에 오타 하나가 라운드 하나($2~3) 값이었다.
+   *
+   * 끄면 그 상태로 돌아간다. 기본을 켠 이유는 **새 위험이 생기지 않기 때문**이다 —
+   * 여는 것은 러너가 어차피 돌릴 명령뿐이다.
+   */
+  execShell?: boolean
+  /**
    * 라운드 하나가 끝날 때마다 불린다 — 워크트리 격리가 라운드별 커밋을 남기는 자리다.
    *
    * 루프에 워크트리 개념을 넣지 않은 이유: 어댑터도 게이트도 리비전도 `cwd` 하나만 보므로,
@@ -574,7 +585,12 @@ async function runLoopWith(
     opts.store.appendJournal({ type: 'round-started', round: attempt })
     opts.log(`시도 ${attempt}/${opts.budget}: 실행 중`)
     const prompt = executePrompt(planText, feedback)
-    let exec = await execAdapter.run({ prompt, cwd: opts.cwd, resumeSessionId: sessionId })
+    // 자기 확인용으로 여는 것은 **승인된 게이트의 명령뿐**이다. 제안 게이트도 승인을
+    // 거쳤으므로 포함된다 — 승인되지 않은 것은 애초에 gates에 없다
+    const selfCheck = opts.execShell === false ? undefined : gates.map(g => g.cmd)
+    let exec = await execAdapter.run({
+      prompt, cwd: opts.cwd, resumeSessionId: sessionId, allowedCommands: selfCheck,
+    })
     ran.exec = true
     usage.exec = addUsage(usage.exec, exec.usage)
     sessionId = exec.sessionId ?? sessionId
@@ -584,7 +600,9 @@ async function runLoopWith(
     // 재시도 예산은 게이트 불통과를 위한 것이므로 여기서 소모하지 않는다
     if (!exec.ok && sessionId) {
       opts.log('에이전트 실패 — 세션 복구 시도')
-      exec = await execAdapter.run({ prompt, cwd: opts.cwd, resumeSessionId: sessionId })
+      exec = await execAdapter.run({
+        prompt, cwd: opts.cwd, resumeSessionId: sessionId, allowedCommands: selfCheck,
+      })
       usage.exec = addUsage(usage.exec, exec.usage)
       sessionId = exec.sessionId ?? sessionId
       for (const e of exec.events) opts.store.appendTranscript(e)
@@ -601,6 +619,7 @@ async function runLoopWith(
       ...(exec.usage === undefined ? {} : { usage: exec.usage }),
       ...(sessionId === undefined ? {} : { sessionId }),
       ...(exec.model === undefined ? {} : { model: exec.model }),
+      ...(exec.selfChecks === undefined ? {} : { selfChecks: exec.selfChecks }),
     })
     noteCost()
 

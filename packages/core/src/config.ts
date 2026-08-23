@@ -41,6 +41,13 @@ export const ConfigSchema = z.object({
    * 실행끼리 비교가 성립하지 않는다는 것이 이 파일이 존재하는 이유 그 자체다.
    */
   worktree: z.boolean().optional(),
+  /**
+   * 실행 턴이 게이트 명령을 스스로 돌릴 수 있는지. 기본 켬.
+   *
+   * 격리와 같은 이유로 여기 있다 — 에이전트가 자기 코드를 확인하고 썼는지는 실행 조건이고,
+   * 그것이 실행마다 다르면 조합 비교가 성립하지 않는다.
+   */
+  execShell: z.boolean().optional(),
 })
 export type Config = z.infer<typeof ConfigSchema>
 

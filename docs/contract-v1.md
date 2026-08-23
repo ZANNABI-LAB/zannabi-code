@@ -60,7 +60,7 @@ append-only JSONL. **한 파일이 세 가지를 겸한다** — tail하면 실�
 | `approval-requested` | 사람의 승인 대기 | `gates` `warnings` `dropped?` |
 | `approval-resolved` | 승인/거부됨 | `action` `reason?` |
 | `round-started` | 라운드 시작 | `round` |
-| `exec-finished` | 실행 턴 종료(게이트 전) | `round` `ok` `usage?` `sessionId?` `model?` |
+| `exec-finished` | 실행 턴 종료(게이트 전) | `round` `ok` `usage?` `sessionId?` `model?` `selfChecks?` |
 | `gate-started` | 게이트 하나 시작 | `round` `phase`(verify/recheck) `gate` `cmd` |
 | `gate-result` | 게이트 하나 종료 | `round` `phase`(verify/recheck) `evidence` |
 | `recheck-suppressed` | 재확인 판정의 한 축을 껐음 | `round` `cause` `suppressed` |
@@ -160,7 +160,7 @@ zannabi-code가 지금 `partial`로 신고하는 다섯과 그 조건:
 | `revisionBinding` | git 저장소가 아니면 결박할 리비전이 없다 |
 | `cost` | claude는 비용을 주고 codex는 주지 않는다. 그리고 **중단된 턴의 지출은 어느 런타임에서도 관측되지 않는다** — 재개한 실행의 비용은 실제보다 적다 |
 | `resume` | **워크트리로 돌던 실행은 재개할 수 없다** — 브랜치 이름이 `zannabi/<runId>`로 결정되는데 워크트리를 치워도 브랜치는 남아, 재개가 같은 이름을 다시 만들려다 실패한다. `--worktree` 없이 재개하면 원본 저장소에서 돌아 그때까지의 작업이 없는 상태로 이어간다 |
-| `execShell` | **실행 런타임에 따라 정반대다.** claude는 `--permission-mode acceptEdits`로 띄우므로 편집은 되고 셸은 승인 대기로 떨어지는데, 비대화형이라 승인이 오지 않는다(실질 `none`). codex는 `--sandbox workspace-write`로 띄우므로 샌드박스 안에서 명령이 돈다 |
+| `execShell` | **여는 것이 게이트 명령뿐이다.** claude는 승인된 게이트의 `cmd`만 접두 패턴으로 받아 돌릴 수 있고(`--no-exec-shell`로 끔), codex는 `--sandbox workspace-write`라 더 넓게 돈다. `full`이 아닌 이유는 능력 부족이 아니라 설계다 — 넓게 열면 러너가 준 권한을 러너가 설명할 수 없다 |
 
 **신고는 자랑이 아니라 계약이다.** 이 러너도 처음에는 비용만 `partial`로 적고 나머지를
 `full`로 신고했다가 외부 리뷰에 잡혔다 — 못 하는 것을 신고하면 소비자가 없는 화면을
@@ -180,7 +180,8 @@ zannabi-code가 지금 `partial`로 신고하는 다섯과 그 조건:
 턴이 그것을 **할 수 없었다** — `transcript.jsonl`에 권한 거부 7건이 남았고 전부 `./gradlew`였다.
 컴파일은 0회, 그 상태로 404줄을 썼다.
 
-`execShell`이 `none`인 조합에서는:
+**2026-08-23부터 이 러너는 게이트 명령을 연다**(Phase 11). 아래는 `execShell`이 `none`인
+조합 — 다른 러너를 붙였거나 `--no-exec-shell`로 끈 경우 — 에서 여전히 참이다:
 
 1. **"확인하고 다음 단계로 가라" 형태의 지시가 성립하지 않는다.** 단계별 귀속을 사람이
    지시서로 만들 수 없다. 그런 실행에서 얻은 "A는 B를 깨지 않는다"는 답은 측정이 아니라
@@ -190,6 +191,10 @@ zannabi-code가 지금 `partial`로 신고하는 다섯과 그 조건:
 
 신고하지 않으면 지시를 쓰는 사람이 되지 않을 것을 지시하고, **그 사실을 실행이 끝난 뒤에야
 안다.** 그것이 이 축을 계약에 넣는 이유다.
+
+**자기 확인은 판정이 아니다.** 에이전트가 게이트를 백 번 돌려도 완료는 러너가 돌린 결과로만
+정해진다. 그래서 두 층은 저널에서도 갈린다 — 에이전트가 돌린 것은 `exec-finished.selfChecks`에,
+러너가 판정으로 돌린 것은 `gate-result`에 남는다. **소비자는 둘을 섞어 세면 안 된다.**
 
 ### 실행 레시피 (`launch`)
 

@@ -154,6 +154,7 @@ async function main() {
       'gate-timeout': { type: 'string' },
       'no-suggest': { type: 'boolean' },
       worktree: { type: 'boolean' },
+      'no-exec-shell': { type: 'boolean' },
       arm: { type: 'string', multiple: true, default: [] },
       concurrency: { type: 'string' },
       profile: { type: 'string' },
@@ -185,6 +186,7 @@ async function main() {
       ` [--verify-repeat N] (통과 재확인 횟수, 기본 ${DEFAULT_VERIFY_REPEAT})\n` +
       '  비용 상한: [--max-cost <USD>] (예산과 별개 축 — 라운드 수는 지출을 제어하지 못한다)\n' +
       '  격리: [--worktree] (전용 워크트리에서 돌고 결과를 zannabi/<실행> 브랜치로 남긴다)\n' +
+      '  자기 확인: [--no-exec-shell] (실행 턴이 게이트 명령을 스스로 돌리는 것을 끈다 — 기본은 켬)\n' +
       '  게이트 고정: [--no-suggest] (제안 게이트 거부)' +
       ` [--gate-timeout <ms>] (기본 ${DEFAULT_GATE_TIMEOUT_MS})\n` +
       `  조합 프리셋: [--profile ${PROFILE_NAMES.join('|')}]\n` +
@@ -359,6 +361,12 @@ async function main() {
   // 격리를 못 하는 자리인지 **증거 디렉토리를 만들기 전에** 본다. 거부할 실행이
   // 빈 디렉토리를 남기면 status 목록에 기록 없는 실행이 쌓이고, 측정에 노이즈가 된다
   const useWorktree = values.worktree ?? config.worktree ?? false
+  /**
+   * 실행 턴이 게이트 명령을 스스로 돌리는가. **기본 켬** —
+   * 여는 것은 러너가 어차피 돌릴 명령뿐이라 새 위험이 생기지 않고,
+   * 끄면 에이전트가 자기가 쓴 것이 도는지 모르고 쓰는 상태로 돌아간다.
+   */
+  const execShell = values['no-exec-shell'] === true ? false : (config.execShell ?? true)
   if (useWorktree) {
     const usable = await worktreeUsable(cwd)
     if (!usable.ok) {
@@ -484,6 +492,7 @@ async function main() {
     ...(resume === undefined ? {} : { resume }),
     // 새 워크트리는 빌드 캐시가 비어 첫 회가 콜드다 — 재확인의 비율 판정이 구조적으로 오탐한다
     ...(worktree === undefined ? {} : { coldWorkspace: true }),
+    execShell,
     // 라운드마다 커밋한다 — 실패로 끝난 실행의 작업물도 사라지면 안 되고,
     // 라운드별 커밋은 "몇 번째 시도에서 무엇이 달라졌나"를 git 이력 자체로 말한다
     ...(worktree === undefined
@@ -513,10 +522,12 @@ async function main() {
   // 루프가 끝난 뒤 쓴 것(최종 diff)까지 포함한 최신 손실을 싣는다
   const elapsedMs =
     startedAt === undefined ? undefined : Date.now() - new Date(startedAt).getTime()
-  const report = buildReport(
-    result, intent, configChange, store.losses, resumeCount,
-    elapsedMs !== undefined && elapsedMs >= 0 ? elapsedMs : undefined,
-  )
+  const report = buildReport(result, intent, configChange, store.losses, {
+    resumeCount,
+    ...(elapsedMs !== undefined && elapsedMs >= 0 ? { elapsedMs } : {}),
+    // 저널이 정본이다 — 결과 객체가 아니라 실제로 쓰인 줄에서 읽는다
+    ...(execShell === false ? {} : { selfChecks: replay(readJournal(store.dir)).selfChecks ?? [] }),
+  })
   store.writeReport(report)
 
   console.log(`\n${report}\n`)

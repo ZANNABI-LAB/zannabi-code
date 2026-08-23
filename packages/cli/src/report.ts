@@ -36,6 +36,28 @@ function usageLines(usage: { plan: Usage; exec: Usage }): string[] {
   ]
 }
 
+export interface ReportMeta {
+  /**
+   * 이 실행이 몇 번 이어받아졌는지. 0이거나 없으면 한 번에 돈 실행이다.
+   *
+   * 없으면 리포트가 `attempts: 1`만 말하고, 이 실행이 한 번 죽었다 이어 돈 것인지
+   * 읽는 사람이 알 수 없다. 저널은 `run-resumed`로 알고 있는데 화면이 안 쓴 것이다.
+   */
+  resumeCount?: number
+  /**
+   * 첫 이벤트부터 마지막 이벤트까지. **재개한 실행에서는 멎어 있던 시간이 포함된다** —
+   * 저널은 프로세스가 죽어 있던 구간을 모른다.
+   *
+   * 조합 비교의 축은 셋(비용·토큰·시간)인데 이것이 없어 재는 사람이 스톱워치를 따로 들었다.
+   */
+  elapsedMs?: number
+  /**
+   * 에이전트가 **스스로 돌린** 명령. 러너가 판정으로 돌린 게이트와 **다른 층**이다 —
+   * 비어 있으면 그 실행의 에이전트는 자기가 쓴 것이 도는지 모르고 썼다.
+   */
+  selfChecks?: string[]
+}
+
 export function buildReport(
   result: LoopResult,
   intent: string,
@@ -46,20 +68,12 @@ export function buildReport(
    */
   losses?: EvidenceLoss[],
   /**
-   * 이 실행이 몇 번 이어받아졌는지. 0이거나 없으면 한 번에 돈 실행이다.
-   *
-   * 없으면 리포트가 `attempts: 1`만 말하고, 이 실행이 한 번 죽었다 이어 돈 것인지
-   * 읽는 사람이 알 수 없다. 저널은 `run-resumed`로 알고 있는데 화면이 안 쓴 것이다.
+   * 저널만 아는 것들. **위치 인자로 늘리지 않는다** — 여기 실리는 값은 전부
+   * "관측은 했는데 화면이 안 쓰던" 부류라 앞으로도 늘어날 자리다.
    */
-  resumeCount?: number,
-  /**
-   * 첫 이벤트부터 마지막 이벤트까지. **재개한 실행에서는 멎어 있던 시간이 포함된다** —
-   * 저널은 프로세스가 죽어 있던 구간을 모른다.
-   *
-   * 조합 비교의 축은 셋(비용·토큰·시간)인데 이것이 없어 재는 사람이 스톱워치를 따로 들었다.
-   */
-  elapsedMs?: number,
+  meta: ReportMeta = {},
 ): string {
+  const { resumeCount, elapsedMs, selfChecks } = meta
   const lines = [
     `# zannabi run report`,
     ``,
@@ -71,6 +85,15 @@ export function buildReport(
     lines.push(
       `- **elapsed**: ${duration(elapsedMs)}` +
         (resumeCount ? ' (멎어 있던 시간 포함 — 저널은 죽어 있던 구간을 모른다)' : ''),
+    )
+  // **판정과 다른 층이라는 것이 이 줄의 전부다.** 자체 확인은 완료를 만들지 않는다.
+  // 0건이면 그 사실을 적는다 — 에이전트가 자기가 쓴 것이 도는지 모르고 썼다는 뜻이라,
+  // 아래 게이트 결과를 읽을 때 알아야 하는 배경이다
+  if (selfChecks)
+    lines.push(
+      selfChecks.length > 0
+        ? `- **self-checks**: ${selfChecks.length}건 (에이전트가 스스로 돌림 — 판정 아님)`
+        : `- **self-checks**: 0건 — 에이전트가 검증 없이 썼다`,
     )
   // 한 번에 돈 실행과 죽었다 이어 돈 실행은 다른 실행이다 — attempts만으로는 갈리지 않는다
   if (resumeCount)
