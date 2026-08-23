@@ -2,6 +2,7 @@ import {
   addUsage, emptyUsage, CONFIG_FILENAME,
   type ConfigChange, type EvidenceLoss, type LoopResult, type Usage,
 } from '@zannabi-lab/core'
+import { duration } from './status'
 
 // diff 캡처는 core로 옮겼다 — 루프가 라운드마다 워킹트리를 찍어야 하기 때문이다.
 // CLI는 최종 diff 저장에만 쓰므로 여기서는 재수출만 한다
@@ -44,6 +45,20 @@ export function buildReport(
    * 결과에 박힌 값보다 이쪽이 최신이다.
    */
   losses?: EvidenceLoss[],
+  /**
+   * 이 실행이 몇 번 이어받아졌는지. 0이거나 없으면 한 번에 돈 실행이다.
+   *
+   * 없으면 리포트가 `attempts: 1`만 말하고, 이 실행이 한 번 죽었다 이어 돈 것인지
+   * 읽는 사람이 알 수 없다. 저널은 `run-resumed`로 알고 있는데 화면이 안 쓴 것이다.
+   */
+  resumeCount?: number,
+  /**
+   * 첫 이벤트부터 마지막 이벤트까지. **재개한 실행에서는 멎어 있던 시간이 포함된다** —
+   * 저널은 프로세스가 죽어 있던 구간을 모른다.
+   *
+   * 조합 비교의 축은 셋(비용·토큰·시간)인데 이것이 없어 재는 사람이 스톱워치를 따로 들었다.
+   */
+  elapsedMs?: number,
 ): string {
   const lines = [
     `# zannabi run report`,
@@ -52,6 +67,19 @@ export function buildReport(
     `- **status**: ${result.status}`,
     `- **attempts**: ${result.attempts}`,
   ]
+  if (elapsedMs !== undefined)
+    lines.push(
+      `- **elapsed**: ${duration(elapsedMs)}` +
+        (resumeCount ? ' (멎어 있던 시간 포함 — 저널은 죽어 있던 구간을 모른다)' : ''),
+    )
+  // 한 번에 돈 실행과 죽었다 이어 돈 실행은 다른 실행이다 — attempts만으로는 갈리지 않는다
+  if (resumeCount)
+    lines.push(
+      `- **resumed**: ${resumeCount}회 이어받음` +
+        ` — ⚠️ 죽은 실행 턴이 쓴 토큰은 아래 비용에 **빠져 있다**` +
+        `(어댑터는 턴이 끝날 때 보고하므로 중단된 턴의 지출은 관측되지 않는다).` +
+        ` 실제 지출은 여기 적힌 값보다 크고, \`--max-cost\`도 그만큼 적게 센다`,
+    )
   // 어떤 조합으로 돌았는지 — 조합별 비교의 기본 축
   if (result.runtime)
     lines.push(`- **runtime**: plan=\`${result.runtime.plan}\` exec=\`${result.runtime.exec}\``)

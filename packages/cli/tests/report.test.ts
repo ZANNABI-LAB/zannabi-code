@@ -319,3 +319,48 @@ test('정체 감지가 죽은 조합이면 리포트 머리에 세운다', () =>
   )
   expect(report).toContain('정체 감지 꺼짐')
 })
+
+test('재개한 실행은 그 사실과 비용의 한계를 함께 적는다', () => {
+  // attempts만으로는 한 번에 돈 실행과 갈리지 않는다. 그리고 죽은 턴이 쓴 토큰은
+  // 어댑터가 턴 완료 시점에 보고하므로 어디에도 안 잡힌다 — 비용이 실제보다 적다
+  const report = buildReport(
+    { status: 'success', attempts: 1, rounds: [round(1, 'aaa')] },
+    '작업',
+    undefined,
+    undefined,
+    1,
+  )
+  expect(report).toContain('**resumed**: 1회 이어받음')
+  expect(report).toContain('빠져 있다')
+
+  // 한 번에 돈 실행에는 붙지 않는다 — 없는 경고를 다는 것도 거짓이다
+  const once = buildReport(
+    { status: 'success', attempts: 1, rounds: [round(1, 'aaa')] },
+    '작업',
+  )
+  expect(once).not.toContain('resumed')
+})
+
+test('리포트가 소요시간을 적는다 — 조합 비교의 축 셋 중 하나다', () => {
+  const report = buildReport(
+    { status: 'success', attempts: 1, rounds: [round(1, 'aaa')] },
+    '작업',
+    undefined,
+    undefined,
+    0,
+    372_000,
+  )
+  expect(report).toContain('**elapsed**: 6분')
+  expect(report).not.toContain('멎어 있던')
+
+  // 재개한 실행에서는 죽어 있던 구간이 포함된다는 것을 밝힌다
+  const resumed = buildReport(
+    { status: 'success', attempts: 1, rounds: [round(1, 'aaa')] },
+    '작업',
+    undefined,
+    undefined,
+    1,
+    372_000,
+  )
+  expect(resumed).toContain('멎어 있던 시간 포함')
+})

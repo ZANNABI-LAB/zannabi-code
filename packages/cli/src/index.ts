@@ -377,6 +377,16 @@ async function main() {
   let runIntent = intent ?? ''
   let effectiveBudget = budget
   let resume: ResumeState | undefined
+  /**
+   * 이번 재개까지 포함한 이어받은 횟수. 저널의 `run-resumed`를 세면 나오지만,
+   * 이번 실행이 쓰는 줄은 루프가 저널을 읽은 **뒤에** 붙으므로 여기서 1을 더한다.
+   */
+  let resumeCount = 0
+  /**
+   * 이 실행의 첫 이벤트 시각. 재개면 **최초 실행이 시작한 시각**이다 —
+   * 저널은 프로세스가 죽어 있던 구간을 모르므로 그 사이가 경과에 포함된다.
+   */
+  let startedAt: string | undefined
 
   if (command === 'resume') {
     const found = resolveRun(cwd, intent)
@@ -403,6 +413,8 @@ async function main() {
       process.exit(1)
     }
     runIntent = state.intent ?? ''
+    resumeCount = (state.resumeCount ?? 0) + 1
+    startedAt = state.startedAt
     store = RunStore.open(cwd, found.runId)
     resume = {
       planText: readFileSync(planPath, 'utf-8'),
@@ -423,6 +435,7 @@ async function main() {
       )
   } else {
     store = new RunStore(cwd, runIntent)
+    startedAt = new Date().toISOString()
   }
 
   /**
@@ -498,7 +511,12 @@ async function main() {
   const diff = worktree ? await branchDiff(cwd, worktree) : await captureDiff(cwd)
   if (diff) store.writeDiff(diff)
   // 루프가 끝난 뒤 쓴 것(최종 diff)까지 포함한 최신 손실을 싣는다
-  const report = buildReport(result, intent, configChange, store.losses)
+  const elapsedMs =
+    startedAt === undefined ? undefined : Date.now() - new Date(startedAt).getTime()
+  const report = buildReport(
+    result, intent, configChange, store.losses, resumeCount,
+    elapsedMs !== undefined && elapsedMs >= 0 ? elapsedMs : undefined,
+  )
   store.writeReport(report)
 
   console.log(`\n${report}\n`)

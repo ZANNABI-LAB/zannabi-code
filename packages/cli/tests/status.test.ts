@@ -141,3 +141,62 @@ test('비용 미보고를 0원으로 적지 않는다', () => {
   expect(text).toContain('보고되지 않음')
   expect(text).not.toContain('$0.00')
 })
+
+test('한 번에 돈 실행과 이어 돈 실행을 화면이 구분한다', () => {
+  // 저널은 run-resumed로 알고 있는데 화면이 안 쓰면, 이 실행이 죽었다 이어 돈 것인지
+  // 읽는 사람이 알 수 없다. 6차 실측의 report.md에 재개 흔적이 한 글자도 없었다
+  const state = replay(
+    parseJournal(
+      [
+        { type: 'run-started', at: 't0', contractVersion: 1, runId: 'r', intent: 'i', cwd: '/x', budget: 3 },
+        { type: 'round-started', at: 't1', round: 1 },
+        { type: 'run-resumed', at: 't2', fromRound: 1, completedRounds: 0 },
+        { type: 'run-finished', at: 't3', status: 'success', attempts: 1 },
+      ]
+        .map(e => JSON.stringify(e))
+        .join('\n'),
+    ),
+  )
+  expect(state.resumeCount).toBe(1)
+  expect(renderStatus(state)).toContain('재개: 1회')
+  expect(renderRunLine('r', state)).toContain('재개1')
+
+  // 한 번에 돈 실행에는 아무 말도 붙지 않는다
+  const once = replay(
+    parseJournal(
+      [
+        { type: 'run-started', at: 't0', contractVersion: 1, runId: 'r', intent: 'i', cwd: '/x', budget: 3 },
+        { type: 'run-finished', at: 't1', status: 'success', attempts: 1 },
+      ]
+        .map(e => JSON.stringify(e))
+        .join('\n'),
+    ),
+  )
+  expect(renderStatus(once)).not.toContain('재개')
+  expect(renderRunLine('r', once)).not.toContain('재개')
+})
+
+test('소요시간을 화면이 말한다 — 재개한 실행은 멎어 있던 시간을 밝힌다', () => {
+  const journal = (extra: object[]) =>
+    replay(
+      parseJournal(
+        [
+          { type: 'run-started', at: '2026-08-23T00:00:00.000Z', contractVersion: 1, runId: 'r', intent: 'i', cwd: '/x', budget: 3 },
+          ...extra,
+          { type: 'run-finished', at: '2026-08-23T00:06:00.000Z', status: 'success', attempts: 1 },
+        ]
+          .map(e => JSON.stringify(e))
+          .join('\n'),
+      ),
+    )
+
+  // 한 번에 돈 실행 — 첫 이벤트부터 마지막까지가 그대로 소요시간이다
+  expect(renderStatus(journal([]))).toContain('소요: 6분')
+
+  // 재개한 실행 — 저널은 프로세스가 죽어 있던 구간을 모른다. 그것을 "돈 시간"이라
+  // 부르면 거짓이므로 단서를 붙인다
+  const resumed = renderStatus(
+    journal([{ type: 'run-resumed', at: '2026-08-23T00:05:00.000Z', fromRound: 1, completedRounds: 0 }]),
+  )
+  expect(resumed).toContain('소요: 6분 (멎어 있던 시간 포함)')
+})

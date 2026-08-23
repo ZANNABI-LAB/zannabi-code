@@ -11,6 +11,18 @@
 import type { ReplayState } from '@zannabi-lab/core'
 import { resumability } from '@zannabi-lab/core'
 
+/** 경과를 사람의 말로. 초·분·시간 세 구간이면 충분하다 — 밀리초는 게이트에서나 의미가 있다 */
+export function duration(ms: number): string {
+  const s = Math.round(ms / 1000)
+  return s < 60 ? `${s}초` : s < 3600 ? `${Math.round(s / 60)}분` : `${(s / 3600).toFixed(1)}시간`
+}
+
+function elapsedMs(from?: string, to?: string): number | undefined {
+  if (!from || !to) return undefined
+  const ms = new Date(to).getTime() - new Date(from).getTime()
+  return Number.isFinite(ms) && ms >= 0 ? ms : undefined
+}
+
 /**
  * 마지막 이벤트로부터 얼마나 조용한가.
  *
@@ -19,12 +31,22 @@ import { resumability } from '@zannabi-lab/core'
  * 러너가 죽었을 수도 있는데, 그 둘을 가르는 것은 사람이지 이 화면이 아니다.
  */
 function silence(lastEventAt?: string, now: Date = new Date()): { ms: number; text: string } | undefined {
-  if (!lastEventAt) return undefined
-  const ms = now.getTime() - new Date(lastEventAt).getTime()
-  if (!Number.isFinite(ms) || ms < 0) return undefined
-  const s = Math.round(ms / 1000)
-  const text = s < 60 ? `${s}초` : s < 3600 ? `${Math.round(s / 60)}분` : `${(s / 3600).toFixed(1)}시간`
-  return { ms, text }
+  const ms = elapsedMs(lastEventAt, now.toISOString())
+  return ms === undefined ? undefined : { ms, text: duration(ms) }
+}
+
+/**
+ * 이 실행이 얼마나 걸렸나. **재개한 실행에서는 멎어 있던 시간이 포함된다** —
+ * 저널은 프로세스가 죽어 있던 구간을 모르므로 첫 이벤트와 마지막 이벤트의 차이밖에
+ * 말할 수 없다. 그것을 "돈 시간"이라 부르면 거짓이라 부르는 이름을 달리한다.
+ */
+function elapsedLine(state: ReplayState): string | undefined {
+  const end = state.phase === 'finished' ? state.finishedAt : state.lastEventAt
+  const ms = elapsedMs(state.startedAt, end)
+  if (ms === undefined) return undefined
+  const label = state.phase === 'finished' ? '소요' : '경과'
+  const caveat = state.resumeCount ? ' (멎어 있던 시간 포함)' : ''
+  return `${label}: ${duration(ms)}${caveat}`
 }
 
 /** 진행 중 상태는 사람의 말로 옮긴다 — `interrupted`가 무슨 뜻인지 사용자는 모른다 */
@@ -63,6 +85,15 @@ export function renderStatus(state: ReplayState, now: Date = new Date()): string
   if (state.profile) lines.push(`프리셋: ${state.profile}`)
   // 조 하나만 떼어 보는 사람에게 "이것은 비교의 일부였다"를 알린다
   if (state.raceId) lines.push(`best-of-N: ${state.raceId}의 조 하나입니다`)
+
+  // 한 번에 돈 실행과 죽었다 이어 돈 실행은 다른 실행이다. 저널이 run-resumed를
+  // 기록하는 이유가 정확히 이것인데, 화면이 안 쓰면 그 사실이 밖에서 사라진다
+  if (state.resumeCount) lines.push(`재개: ${state.resumeCount}회 이어받았습니다`)
+
+  // 조합 비교의 축 셋(비용·토큰·시간) 중 하나다. 저널이 첫 줄과 마지막 줄의 시각을
+  // 가지고 있는데 화면이 안 쓰면, 재는 사람이 스톱워치를 따로 든다
+  const elapsed = elapsedLine(state)
+  if (elapsed) lines.push(elapsed)
 
   const budget = state.budget === undefined ? '?' : String(state.budget)
   lines.push(`라운드: ${state.rounds.length}/${budget} 완료`)
@@ -138,8 +169,11 @@ export function renderRunLine(
   const lost = state.losses.length > 0 ? ' · 증거손실' : ''
   // 목록에서 race의 조들이 서로 무관한 실행으로 보이지 않게 한다
   const race = state.raceId ? ' · race' : ''
+  // 목록에서도 한 번에 돈 실행과 구분되어야 한다 — 실행 시간과 라운드 수를 비교하는
+  // 측정에서 그 차이를 뭉개면 안 된다
+  const resumed = state.resumeCount ? ` · 재개${state.resumeCount}` : ''
   // 진행 중인 실행은 무음 경과를 함께 — 목록만 보고도 멎은 것 같은지 가늠할 수 있어야 한다
   const quiet = state.phase === 'finished' ? undefined : silence(state.lastEventAt, now)
   const idle = quiet ? ` · ${quiet.text} 조용` : ''
-  return `${mark} ${runId}  ${what} · ${rounds}${cost}${lost}${race}${idle}`
+  return `${mark} ${runId}  ${what} · ${rounds}${cost}${lost}${race}${resumed}${idle}`
 }
