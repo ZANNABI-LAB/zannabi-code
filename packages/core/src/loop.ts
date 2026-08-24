@@ -587,9 +587,14 @@ async function runLoopWith(
     // 자기 확인용으로 여는 것은 **승인된 게이트의 명령뿐**이다. 제안 게이트도 승인을
     // 거쳤으므로 포함된다 — 승인되지 않은 것은 애초에 gates에 없다
     const selfCheck = opts.execShell === false ? undefined : gates.map(g => g.cmd)
+    // **열 수 있는 것과 없는 것을 사전에 가른다.** 어댑터가 답하지 않으면 전부 열린다고 본다.
+    // 실측에서 승인된 게이트 둘이 형태 때문에 거부됐는데(`!` 접두 · `$(…)`), 프롬프트는
+    // 그것을 "정확히 베껴 쓰라"고 말하고 있었다 — 안내문이 거짓말이 된 자리다
+    const open = selfCheck ? (execAdapter.openableCommands?.(selfCheck) ?? selfCheck) : []
+    const closed = (selfCheck ?? []).filter(c => !open.includes(c.trim()))
     // 열어 놓고 말을 안 하면 에이전트는 계획서에 적힌 판을 베끼고, 그것이 원본과 다르면
     // 조용히 거부된다 — 실측에서 따옴표 하나로 13번이 전부 막혔다
-    const prompt = executePrompt(planText, feedback, selfCheck)
+    const prompt = executePrompt(planText, feedback, open, closed)
     let exec = await execAdapter.run({
       prompt, cwd: opts.cwd, resumeSessionId: sessionId, allowedCommands: selfCheck,
     })

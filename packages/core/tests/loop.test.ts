@@ -571,3 +571,32 @@ test('에이전트가 스스로 돌린 명령이 저널에 남는다', async () 
   // 같은 명령을 두 번 돌린 것도 두 건이다 — 몇 번 확인했는지가 물음이다
   expect(exec[0].selfChecks).toEqual([{ cmd: 'bun test' }, { cmd: 'bun test' }])
 })
+
+test('어댑터가 못 연다고 답한 게이트는 프롬프트에서 갈린다', async () => {
+  // 실측 D5의 모양: 승인된 게이트가 `!` 접두라 실행 턴에서 거부됐는데,
+  // 러너는 그것을 프롬프트에 "정확히 베껴 쓰라"고 실었다
+  const adapter = new FakeAdapter([fakeResult(planText('true')), fakeResult('했음')])
+  // core는 셸 문법을 모른다 — 무엇을 열 수 있는지는 어댑터가 답한다
+  ;(adapter as unknown as { openableCommands: (c: string[]) => string[] }).openableCommands = cmds =>
+    cmds.filter(c => !c.startsWith('!'))
+
+  await runLoop(options({
+    adapter,
+    userGates: [{ name: 'u', cmd: '! false', timeoutMs: 300000, source: 'user' }],
+  }))
+
+  const prompt = adapter.requests[1].prompt
+  // 열 수 있는 것은 자기 확인 절에
+  expect(prompt).toContain('run these verification commands yourself')
+  // 못 여는 것은 갈라서, 그러나 감추지 않고
+  expect(prompt).toContain('cannot run them')
+  expect(prompt).toContain('! false')
+  // 어댑터에는 여전히 전부 넘긴다 — 무엇을 열지는 어댑터가 정한다
+  expect(adapter.requests[1].allowedCommands).toEqual(['! false', 'true'])
+})
+
+test('어댑터가 답하지 않으면 전부 열린다고 본다', async () => {
+  const adapter = new FakeAdapter([fakeResult(planText('true')), fakeResult('했음')])
+  await runLoop(options({ adapter }))
+  expect(adapter.requests[1].prompt).not.toContain('cannot run them')
+})

@@ -41,27 +41,45 @@ End your reply with exactly one JSON code block:
  * **정규화가 아니라 이쪽이 근본이다.** 따옴표 스타일을 맞춰 주는 것은 다음 변형(인자 순서·
  * 앞에 붙는 플래그)에서 또 뚫린다. 러너는 정확한 문자열을 알고 있으므로 그것을 주면 된다.
  */
-function selfCheckSection(commands: string[]): string {
-  if (commands.length === 0) return ''
-  return (
-    `\n\nYou may run these verification commands yourself while working, to check your ` +
-    `own changes before finishing:\n` +
-    commands.map(c => `  ${c}`).join('\n') +
-    `\n\nCopy them EXACTLY as written above — quote characters included. ` +
-    `A command that differs even slightly will be silently denied, and you will not be told why. ` +
-    `You may append arguments and pipes (e.g. \` 2>&1 | tail -30\`); the prefix must match.\n` +
-    `These are the SAME commands the runner will use to judge completion, but your runs do ` +
-    `NOT count as the verdict — the runner re-runs them itself afterwards.`
-  )
+function selfCheckSection(open: string[], closed: string[]): string {
+  if (open.length === 0 && closed.length === 0) return ''
+  let out = ''
+  if (open.length > 0)
+    out +=
+      `\n\nYou may run these verification commands yourself while working, to check your ` +
+      `own changes before finishing:\n` +
+      open.map(c => `  ${c}`).join('\n') +
+      `\n\nCopy them EXACTLY as written above — quote characters included. ` +
+      `A command that differs even slightly will be silently denied, and you will not be told why. ` +
+      `You may append arguments and pipes (e.g. \` 2>&1 | tail -30\`); the prefix must match.\n` +
+      `These are the SAME commands the runner will use to judge completion, but your runs do ` +
+      `NOT count as the verdict — the runner re-runs them itself afterwards.`
+  // **못 여는 것을 감추지 않는다.** 완료 기준의 일부인데 목록에서 빠지면 에이전트는 그것이
+  // 존재하는 줄도 모르고, 알더라도 "왜 나만 빼놨나"를 알 수 없다
+  if (closed.length > 0)
+    out +=
+      `\n\nThese verification commands will ALSO decide completion, but you cannot run them ` +
+      `yourself — their shape (command substitution, leading \`!\`, …) cannot be granted:\n` +
+      closed.map(c => `  ${c}`).join('\n') +
+      `\n\nDo not attempt them; the attempt will be denied. Reason about them from the code, ` +
+      `or check the same thing with a simpler command of your own.`
+  return out
 }
 
-export function executePrompt(plan: string, feedback?: string, selfCheckCmds: string[] = []): string {
+export function executePrompt(
+  plan: string,
+  feedback?: string,
+  /** 에이전트가 직접 돌릴 수 있는 명령 */
+  openCmds: string[] = [],
+  /** 완료를 정하지만 에이전트는 돌릴 수 없는 명령 */
+  closedCmds: string[] = [],
+): string {
   const retry = feedback
     ? `\n\nPrevious attempt FAILED verification. Evidence:\n${feedback}\n\nFix the issues and try again.`
     : ''
   return (
     `Execute this plan. Modify files as needed.\n\n${PROTECT_EVIDENCE}` +
-    selfCheckSection(selfCheckCmds) +
+    selfCheckSection(openCmds, closedCmds) +
     `\n\nPlan:\n${plan}${retry}`
   )
 }

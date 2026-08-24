@@ -29,3 +29,23 @@ test('재시도 피드백과 자기 확인 절이 함께 실린다', () => {
   expect(prompt).toContain('bun test')
   expect(prompt).toContain('Previous attempt FAILED')
 })
+
+test('못 여는 명령을 감추지 않고 갈라 적는다', () => {
+  // 실측: 승인된 게이트 둘이 형태 때문에 거부됐는데 프롬프트는 "정확히 베껴 쓰라"고 말했다.
+  // 정확히 베꼈는데 막혔으므로 그 안내는 그 경우에 거짓말이었다
+  const closed = `! sed -n '35,$p' docs/CONFORMANCE.md | grep -nP '[\\x{AC00}-\\x{D7A3}]'`
+  const prompt = executePrompt('1. 고친다', undefined, ['bun test'], [closed])
+
+  expect(prompt).toContain('bun test')
+  expect(prompt).toContain(closed)
+  expect(prompt).toContain('cannot run them')
+  // 시도하지 말라고 말한다 — 시도는 거부로 끝나고 그만큼 턴을 쓴다
+  expect(prompt).toContain('Do not attempt them')
+  // 그래도 완료를 정한다는 사실은 알려야 한다. 목록에서 빼면 존재조차 모른다
+  expect(prompt).toContain('ALSO decide completion')
+})
+
+test('전부 열 수 있으면 못 여는 절은 없다', () => {
+  const prompt = executePrompt('1. 고친다', undefined, ['bun test'])
+  expect(prompt).not.toContain('cannot run them')
+})

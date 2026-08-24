@@ -15,25 +15,49 @@ export interface ClaudeAdapterOptions {
 }
 
 /**
+ * 이 명령을 자기 확인용으로 **열 수 있는가.**
+ *
+ * claude의 권한 규칙은 명령 문자열의 **접두**를 본다. 그래서 접두로 표현되지 않는 형태는
+ * 패턴에 적어도 걸리지 않고 분류기로 떨어져 거부된다. 실측에서 세 건이 그렇게 막혔는데,
+ * **그중 둘은 에이전트가 제안하고 러너가 승인한 게이트였다** — 자기가 쓴 문자열을 자기가
+ * 그대로 쳤는데 막힌 것이다.
+ *
+ * 막히는 형태:
+ * - **명령 치환**(`$(…)`, 백틱) — 매번 다른 문자열로 펼쳐지므로 접두가 성립하지 않는다.
+ *   닫는 괄호가 패턴 문법(`Bash(…)`)까지 깨뜨린다.
+ * - **선두 `!`** — 셸 부정. 규칙이 보는 첫 토큰이 명령이 아니게 된다.
+ * - **연산자로 시작하는 복합** — 마찬가지로 첫 토큰이 명령이 아니다.
+ *
+ * 이 판정이 왜 어댑터에 있는가: **core는 claude의 권한 규칙을 모른다.** 다른 런타임은
+ * 다른 규칙을 가지므로(codex는 샌드박스라 이 문제 자체가 없다) 판정도 런타임의 몫이다.
+ */
+function openable(cmd: string): boolean {
+  const trimmed = cmd.trim()
+  if (!trimmed) return false
+  if (trimmed.includes('$(') || trimmed.includes('`') || trimmed.includes(')')) return false
+  if (/^[!&|;(]/.test(trimmed)) return false
+  return true
+}
+
+/**
+ * 열 수 있는 명령만 골라 낸다. **루프는 이 답으로 프롬프트를 쓴다** —
+ * 못 여는 것을 "쓸 수 있다"고 적으면 안내문이 거짓말이 되고, 에이전트는 정확히 베끼고도
+ * 막혀 자기가 무엇을 틀렸는지 찾느라 시도를 한 번 더 쓴다.
+ */
+export function openableCommands(commands: string[]): string[] {
+  return [...new Set(commands.filter(openable).map(c => c.trim()))]
+}
+
+/**
  * 게이트 명령을 claude의 `--allowedTools` 패턴으로 옮긴다.
  *
  * **접두 매칭이다**(`Bash(./gradlew test*)`). 정확히 일치만 허용하면 에이전트가
  * `--info` 하나만 붙여도 막히고, 그러면 열어 준 의미가 없다. 반대로 명령 이름까지만
  * 열면(`Bash(./gradlew *)`) 게이트가 아닌 하위 명령까지 딸려 들어온다 —
  * 이쪽은 러너가 준 권한을 러너가 설명할 수 없게 되는 쪽이라 택하지 않았다.
- *
- * 닫는 괄호가 든 명령은 **버린다.** 패턴 문법을 깨뜨려 의도하지 않은 범위가 열릴 수
- * 있는데, 조용히 넓히느니 그 게이트 하나를 자기 확인에서 빼는 편이 낫다
- * (판정은 어차피 러너가 한다).
  */
 export function allowedToolPatterns(commands?: string[]): string[] {
-  const seen = new Set<string>()
-  for (const cmd of commands ?? []) {
-    const trimmed = cmd.trim()
-    if (!trimmed || trimmed.includes(')')) continue
-    seen.add(`Bash(${trimmed}*)`)
-  }
-  return [...seen]
+  return openableCommands(commands ?? []).map(c => `Bash(${c}*)`)
 }
 
 export class ClaudeAdapter implements AgentAdapter {
@@ -43,6 +67,16 @@ export class ClaudeAdapter implements AgentAdapter {
 
   private get binary() {
     return this.options.binary ?? 'claude'
+  }
+
+  /**
+   * 이 런타임이 자기 확인용으로 열 수 있는 명령. 루프가 프롬프트를 쓰기 전에 묻는다.
+   *
+   * **사후가 아니라 사전에 답해야 한다.** 열어 준 목록과 실제 열린 목록이 다른데 그 차이를
+   * 아무도 모르면, 프롬프트가 못 쓰는 것을 쓸 수 있다고 말하게 된다.
+   */
+  openableCommands(commands: string[]): string[] {
+    return openableCommands(commands)
   }
 
   buildArgs(request: AgentRequest): string[] {

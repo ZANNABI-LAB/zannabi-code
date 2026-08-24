@@ -1,6 +1,6 @@
 import { test, expect } from 'bun:test'
 import { join } from 'node:path'
-import { ClaudeAdapter, allowedToolPatterns } from '../src/index'
+import { ClaudeAdapter, allowedToolPatterns, openableCommands } from '../src/index'
 
 const binary = join(import.meta.dir, 'fixtures/fake-claude.sh')
 
@@ -79,10 +79,20 @@ test('게이트 명령만 열고, 접두 매칭으로 옵션 하나에 막히지
   expect(allowedToolPatterns(undefined)).toEqual([])
 })
 
-test('패턴 문법을 깨뜨릴 명령은 조용히 넓히지 않고 버린다', () => {
-  // 닫는 괄호가 들어가면 Bash(...) 범위가 의도와 다르게 끝난다.
-  // 넓히느니 그 게이트를 자기 확인에서 빼는 편이 낫다 — 판정은 어차피 러너가 한다
-  expect(allowedToolPatterns(['sh -c "(cd x && make)"', 'bun test'])).toEqual(['Bash(bun test*)'])
+test('접두로 표현되지 않는 형태는 열 수 없다고 답한다', () => {
+  // 실측에서 막힌 셋. 둘은 에이전트가 제안하고 러너가 승인한 게이트였다 —
+  // 자기가 쓴 문자열을 자기가 그대로 쳤는데 막혔다
+  const denied = [
+    `! sed -n '35,$p' docs/CONFORMANCE.md | grep -nP '[\\x{AC00}-\\x{D7A3}]'`,
+    `grep -q '^## 4' docs/X.md && test $(git ls-files 'schemas/*.json' | wc -l) -eq 181`,
+    'sh -c "(cd x && make)"',
+    'echo `date`',
+  ]
+  expect(openableCommands(denied)).toEqual([])
+  // 열 수 있는 것은 그대로 통과한다
+  expect(openableCommands([...denied, 'bun test'])).toEqual(['bun test'])
+  // 패턴도 같은 판정을 쓴다 — 둘이 갈리면 프롬프트가 못 쓰는 것을 쓸 수 있다고 말한다
+  expect(allowedToolPatterns(denied)).toEqual([])
 })
 
 test('열어 준 명령이 CLI 인자에 실린다', () => {
