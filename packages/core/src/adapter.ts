@@ -1,4 +1,7 @@
 import type { ProcessOutcome } from './proc'
+// 스키마는 goal.ts가 갖는다 — 저널과 이 계약이 같은 모양을 써야 갈리지 않는다
+import type { SelfCheck } from './goal'
+export type { SelfCheck } from './goal'
 
 export interface AgentRequest {
   prompt: string
@@ -95,7 +98,7 @@ export interface AgentResult {
    * 러너가 판정으로 돌린 게이트와 **다른 층**이다. 이것이 없으면 "에이전트가 자기 코드를
    * 확인하고 썼는가"를 밖에서 물을 수 없고, 그 질문이 이 축의 값 전부다.
    */
-  selfChecks?: string[]
+  selfChecks?: SelfCheck[]
 }
 
 /** 어댑터가 구동 가능한 상태인지 — 인증 만료처럼 실행 전에 알 수 있는 것만 본다 */
@@ -121,8 +124,8 @@ export interface ParsedAgentStream {
   events: AgentEvent[]
   errorReason?: string
   usage?: Usage
-  /** 이 턴에서 에이전트가 스스로 돌린 명령. 어댑터가 알아내지 못하면 없다 */
-  selfChecks?: string[]
+  /** 이 턴에서 에이전트가 **시도한** 자기 확인. 어댑터가 알아내지 못하면 없다 */
+  selfChecks?: SelfCheck[]
 }
 
 /**

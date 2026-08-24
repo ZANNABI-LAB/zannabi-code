@@ -1,6 +1,6 @@
 import {
   addUsage, emptyUsage, CONFIG_FILENAME,
-  type ConfigChange, type EvidenceLoss, type LoopResult, type Usage,
+  type ConfigChange, type EvidenceLoss, type LoopResult, type SelfCheck, type Usage,
 } from '@zannabi-lab/core'
 import { duration } from './status'
 
@@ -36,6 +36,32 @@ function usageLines(usage: { plan: Usage; exec: Usage }): string[] {
   ]
 }
 
+/**
+ * 자기 확인 한 줄. **시도가 아니라 실행을 센다.**
+ *
+ * 실측에서 이 줄이 `13건`이라 적혔는데 실제 실행은 **0건**이었다 — 따옴표 하나가 달라
+ * 전부 거부됐고, 리포트만 읽은 사람은 에이전트가 확인하고 썼다고 믿게 된다.
+ * 이 도구가 되풀이해 지키는 규칙이 여기서 깨졌었다: 관측하지 않은 것을 관측한 것처럼
+ * 말하지 않는다.
+ *
+ * 그래서 거부가 있으면 **그 사실을 앞세운다.** 거부는 대개 러너 쪽 문제(열어 준 패턴과
+ * 에이전트가 친 문자열이 어긋남)이고, 그것을 모르면 "왜 컴파일도 안 하고 썼나"에서 멈춘다.
+ */
+function selfCheckLine(checks: SelfCheck[]): string {
+  const denied = checks.filter(c => c.denied)
+  const ran = checks.length - denied.length
+  if (checks.length === 0) return `- **self-checks**: 0건 — 에이전트가 검증 없이 썼다`
+  if (denied.length === 0)
+    return `- **self-checks**: ${ran}건 (에이전트가 스스로 돌림 — 판정 아님)`
+  const sample = denied[0].cmd.slice(0, 80)
+  return (
+    `- **self-checks**: 시도 ${checks.length}건 중 **${ran}건만 실행** — ` +
+    `${denied.length}건이 거부됐다(열어 준 패턴과 어긋난 명령).` +
+    ` 첫 거부: \`${sample}\`` +
+    (ran === 0 ? ' — **이 턴은 검증 없이 썼다**' : '')
+  )
+}
+
 export interface ReportMeta {
   /**
    * 이 실행이 몇 번 이어받아졌는지. 0이거나 없으면 한 번에 돈 실행이다.
@@ -52,10 +78,10 @@ export interface ReportMeta {
    */
   elapsedMs?: number
   /**
-   * 에이전트가 **스스로 돌린** 명령. 러너가 판정으로 돌린 게이트와 **다른 층**이다 —
-   * 비어 있으면 그 실행의 에이전트는 자기가 쓴 것이 도는지 모르고 썼다.
+   * 에이전트가 **시도한** 자기 확인. 러너가 판정으로 돌린 게이트와 **다른 층**이다.
+   * 거부된 것은 `denied`로 갈린다 — 시도만 세면 리포트가 거짓말을 한다.
    */
-  selfChecks?: string[]
+  selfChecks?: SelfCheck[]
 }
 
 export function buildReport(
@@ -89,12 +115,7 @@ export function buildReport(
   // **판정과 다른 층이라는 것이 이 줄의 전부다.** 자체 확인은 완료를 만들지 않는다.
   // 0건이면 그 사실을 적는다 — 에이전트가 자기가 쓴 것이 도는지 모르고 썼다는 뜻이라,
   // 아래 게이트 결과를 읽을 때 알아야 하는 배경이다
-  if (selfChecks)
-    lines.push(
-      selfChecks.length > 0
-        ? `- **self-checks**: ${selfChecks.length}건 (에이전트가 스스로 돌림 — 판정 아님)`
-        : `- **self-checks**: 0건 — 에이전트가 검증 없이 썼다`,
-    )
+  if (selfChecks) lines.push(selfCheckLine(selfChecks))
   // 한 번에 돈 실행과 죽었다 이어 돈 실행은 다른 실행이다 — attempts만으로는 갈리지 않는다
   if (resumeCount)
     lines.push(

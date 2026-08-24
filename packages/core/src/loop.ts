@@ -584,10 +584,12 @@ async function runLoopWith(
       }
     opts.store.appendJournal({ type: 'round-started', round: attempt })
     opts.log(`시도 ${attempt}/${opts.budget}: 실행 중`)
-    const prompt = executePrompt(planText, feedback)
     // 자기 확인용으로 여는 것은 **승인된 게이트의 명령뿐**이다. 제안 게이트도 승인을
     // 거쳤으므로 포함된다 — 승인되지 않은 것은 애초에 gates에 없다
     const selfCheck = opts.execShell === false ? undefined : gates.map(g => g.cmd)
+    // 열어 놓고 말을 안 하면 에이전트는 계획서에 적힌 판을 베끼고, 그것이 원본과 다르면
+    // 조용히 거부된다 — 실측에서 따옴표 하나로 13번이 전부 막혔다
+    const prompt = executePrompt(planText, feedback, selfCheck)
     let exec = await execAdapter.run({
       prompt, cwd: opts.cwd, resumeSessionId: sessionId, allowedCommands: selfCheck,
     })

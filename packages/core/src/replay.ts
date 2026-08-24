@@ -13,7 +13,7 @@
  */
 import { emptyUsage, type Usage } from './adapter'
 import type { CostCoverage } from './cost'
-import type { Gate, Round } from './goal'
+import type { Gate, Round, SelfCheck } from './goal'
 import type { JournalEvent } from './journal'
 
 /** 지금 이 실행이 무엇을 하는 중인가. `run-finished`가 없는 저널에서만 진행 중이다 */
@@ -86,10 +86,13 @@ export interface ReplayState {
   /** 마지막 이벤트 시각. 실시간 화면이 "언제부터 조용한가"를 재는 값 */
   lastEventAt?: string
   /**
-   * 에이전트가 **스스로 돌린** 명령. 러너가 판정으로 돌린 게이트와 다른 층이다 —
+   * 에이전트가 **시도한** 자기 확인. 러너가 판정으로 돌린 게이트와 다른 층이다 —
    * 이 값이 비어 있으면 그 실행의 에이전트는 자기가 쓴 것이 도는지 모르고 썼다.
+   *
+   * **시도이지 실행이 아니다.** 거부된 것은 `denied`로 갈리므로, "몇 번 확인했나"를
+   * 세려면 그것을 빼야 한다 — 세는 쪽이 그 사실을 모르면 13건이 0건일 수 있다.
    */
-  selfChecks?: string[]
+  selfChecks?: SelfCheck[]
   /**
    * 이 실행이 몇 번 이어받아졌는지. 0이 아니면 한 번에 돈 실행이 아니다 —
    * 실행 시간과 라운드 수를 비교하는 측정에서 그 차이를 뭉개면 안 된다.

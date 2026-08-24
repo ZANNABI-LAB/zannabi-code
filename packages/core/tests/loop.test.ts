@@ -562,12 +562,12 @@ test('에이전트가 스스로 돌린 명령이 저널에 남는다', async () 
   const store = new RunStore(cwd, 'selfcheck')
   const adapter = new FakeAdapter([
     fakeResult(planText('true')),
-    { ...fakeResult('했음'), selfChecks: ['bun test', 'bun test'] },
+    { ...fakeResult('했음'), selfChecks: [{ cmd: 'bun test' }, { cmd: 'bun test' }] },
   ])
   await runLoop(options({ adapter, cwd, store }))
 
   const exec = readJournal(store.dir).filter(e => e.type === 'exec-finished')
   expect(exec).toHaveLength(1)
   // 같은 명령을 두 번 돌린 것도 두 건이다 — 몇 번 확인했는지가 물음이다
-  expect(exec[0].selfChecks).toEqual(['bun test', 'bun test'])
+  expect(exec[0].selfChecks).toEqual([{ cmd: 'bun test' }, { cmd: 'bun test' }])
 })

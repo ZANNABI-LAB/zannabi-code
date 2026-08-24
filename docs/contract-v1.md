@@ -60,7 +60,7 @@ append-only JSONL. **한 파일이 세 가지를 겸한다** — tail하면 실�
 | `approval-requested` | 사람의 승인 대기 | `gates` `warnings` `dropped?` |
 | `approval-resolved` | 승인/거부됨 | `action` `reason?` |
 | `round-started` | 라운드 시작 | `round` |
-| `exec-finished` | 실행 턴 종료(게이트 전) | `round` `ok` `usage?` `sessionId?` `model?` `selfChecks?` |
+| `exec-finished` | 실행 턴 종료(게이트 전) | `round` `ok` `usage?` `sessionId?` `model?` `selfChecks?`(`{cmd, denied?}` — **시도이지 실행이 아니다**) |
 | `gate-started` | 게이트 하나 시작 | `round` `phase`(verify/recheck) `gate` `cmd` |
 | `gate-result` | 게이트 하나 종료 | `round` `phase`(verify/recheck) `evidence` |
 | `recheck-suppressed` | 재확인 판정의 한 축을 껐음 | `round` `cause` `suppressed` |
@@ -195,6 +195,17 @@ zannabi-code가 지금 `partial`로 신고하는 다섯과 그 조건:
 **자기 확인은 판정이 아니다.** 에이전트가 게이트를 백 번 돌려도 완료는 러너가 돌린 결과로만
 정해진다. 그래서 두 층은 저널에서도 갈린다 — 에이전트가 돌린 것은 `exec-finished.selfChecks`에,
 러너가 판정으로 돌린 것은 `gate-result`에 남는다. **소비자는 둘을 섞어 세면 안 된다.**
+
+**`selfChecks`는 시도이지 실행이 아니다.** 거부된 것은 `denied: true`로 갈린다. 실측에서
+13건이 기록된 실행의 실제 실행이 **0건**이었다(열어 준 패턴과 에이전트가 친 문자열이 따옴표
+하나로 어긋났다). 세는 쪽이 이것을 모르면 "확인하고 썼다"가 거짓이 된다.
+
+> **`execShell`이 신고하는 것은 러너가 연 범위이지, 에이전트가 할 수 있는 것 전부가 아니다.**
+> 실행 런타임은 자체 정책으로 더 열 수 있다 — 실측에서 우리가 열지 않은 `grep`·`sed -n`·
+> `git status`가 통과했고(읽기 명령으로 보인다), 같은 실행에서 `./gradlew -v`는 거부됐다.
+> 러너는 그 정책을 통제하지도 신고하지도 못한다. 다만 **무엇이 실제로 돌았는지는
+> `selfChecks`에 남으므로**, 러너가 열지 않은 명령이 `denied` 없이 거기 있으면
+> 그것이 런타임이 연 것이다. 소비자는 그렇게 읽을 수 있다.
 
 ### 실행 레시피 (`launch`)
 

@@ -29,11 +29,41 @@ End your reply with exactly one JSON code block:
 \`\`\``
 }
 
-export function executePrompt(plan: string, feedback?: string): string {
+/**
+ * 자기 확인용으로 열어 준 명령을 **문자 그대로** 알려주는 절.
+ *
+ * 이것이 없으면 열어 놓고 말을 안 한 것이 된다. 에이전트는 계획서에 적힌 명령을 베끼는데,
+ * 계획서의 명령은 **사람이 지시서에 다시 타이핑한 판**이라 원본과 조금씩 다르다.
+ * 실측에서 따옴표 종류 하나(`'*ApiAuthTest*'` → `"*ApiAuthTest*"`)가 달라 13번의 시도가
+ * 전부 거부됐고, 에이전트는 거부 사유를 못 받으므로 그대로 눈 감고 404줄을 썼다.
+ * 그 실행은 라운드를 하나 더 쓰고 $7.01로 끝났다 — 정상 동작한 쪽은 $2.87이었다.
+ *
+ * **정규화가 아니라 이쪽이 근본이다.** 따옴표 스타일을 맞춰 주는 것은 다음 변형(인자 순서·
+ * 앞에 붙는 플래그)에서 또 뚫린다. 러너는 정확한 문자열을 알고 있으므로 그것을 주면 된다.
+ */
+function selfCheckSection(commands: string[]): string {
+  if (commands.length === 0) return ''
+  return (
+    `\n\nYou may run these verification commands yourself while working, to check your ` +
+    `own changes before finishing:\n` +
+    commands.map(c => `  ${c}`).join('\n') +
+    `\n\nCopy them EXACTLY as written above — quote characters included. ` +
+    `A command that differs even slightly will be silently denied, and you will not be told why. ` +
+    `You may append arguments and pipes (e.g. \` 2>&1 | tail -30\`); the prefix must match.\n` +
+    `These are the SAME commands the runner will use to judge completion, but your runs do ` +
+    `NOT count as the verdict — the runner re-runs them itself afterwards.`
+  )
+}
+
+export function executePrompt(plan: string, feedback?: string, selfCheckCmds: string[] = []): string {
   const retry = feedback
     ? `\n\nPrevious attempt FAILED verification. Evidence:\n${feedback}\n\nFix the issues and try again.`
     : ''
-  return `Execute this plan. Modify files as needed.\n\n${PROTECT_EVIDENCE}\n\nPlan:\n${plan}${retry}`
+  return (
+    `Execute this plan. Modify files as needed.\n\n${PROTECT_EVIDENCE}` +
+    selfCheckSection(selfCheckCmds) +
+    `\n\nPlan:\n${plan}${retry}`
+  )
 }
 
 /**

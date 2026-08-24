@@ -99,7 +99,7 @@ test('에이전트가 스스로 돌린 명령을 뽑는다', () => {
   const parsed = parseStreamJson(lines.map(l => JSON.stringify(l)).join('\n'))
 
   // Bash만 센다 — Edit는 자기 확인이 아니라 작업이다
-  expect(parsed.selfChecks).toEqual(['./gradlew build', 'bun test'])
+  expect(parsed.selfChecks).toEqual([{ cmd: './gradlew build' }, { cmd: 'bun test' }])
 })
 
 test('셸을 한 번도 안 쓴 턴은 selfChecks가 아예 없다', () => {
@@ -114,4 +114,51 @@ test('셸을 한 번도 안 쓴 턴은 selfChecks가 아예 없다', () => {
       .join('\n'),
   )
   expect(parsed.selfChecks).toBeUndefined()
+})
+
+test('거부된 시도를 실행한 것으로 세지 않는다 — 13건이 0건일 수 있다', () => {
+  // 실측 1차의 모양: 따옴표 하나가 달라 전부 거부됐는데 리포트는 "13건"이라 적었다
+  const lines = [
+    {
+      type: 'assistant',
+      message: {
+        content: [
+          { type: 'tool_use', id: 'tu_1', name: 'Bash', input: { command: './gradlew test --tests "*A*"' } },
+          { type: 'tool_use', id: 'tu_2', name: 'Bash', input: { command: 'bun test' } },
+        ],
+      },
+    },
+    {
+      type: 'result',
+      subtype: 'success',
+      result: '했음',
+      permission_denials: [
+        { tool_name: 'Bash', tool_use_id: 'tu_1', tool_input: { command: './gradlew test --tests "*A*"' } },
+      ],
+    },
+  ]
+  const parsed = parseStreamJson(lines.map(l => JSON.stringify(l)).join('\n'))
+
+  expect(parsed.selfChecks).toEqual([
+    { cmd: './gradlew test --tests "*A*"', denied: true },
+    { cmd: 'bun test' },
+  ])
+})
+
+test('id가 없는 거부 기록은 명령 문자열로 맞춘다', () => {
+  // 대조에 실패해 거부를 놓치면 리포트가 "확인했다"고 말한다 — 이 필드를 만든 이유가 그것이다
+  const lines = [
+    {
+      type: 'assistant',
+      message: { content: [{ type: 'tool_use', name: 'Bash', input: { command: './gradlew -v' } }] },
+    },
+    {
+      type: 'result',
+      subtype: 'success',
+      result: '했음',
+      permission_denials: [{ tool_name: 'Bash', tool_input: { command: './gradlew -v' } }],
+    },
+  ]
+  const parsed = parseStreamJson(lines.map(l => JSON.stringify(l)).join('\n'))
+  expect(parsed.selfChecks).toEqual([{ cmd: './gradlew -v', denied: true }])
 })

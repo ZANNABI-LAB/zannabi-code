@@ -139,6 +139,21 @@ export type Evidence = z.infer<typeof EvidenceSchema>
  * "그 사이 파일이 바뀌었는지"가 사라진다. no-progress 판정은 정확히 그 둘을 본다.
  */
 /**
+ * 에이전트가 **시도한** 자기 확인 한 건.
+ *
+ * **시도와 실행을 가르는 것이 이 모양의 존재 이유다.** 시도만 세면 리포트가 거짓말을 한다 —
+ * 실측에서 `selfChecks 13건`으로 적힌 실행의 실제 실행이 **0건**이었다(전부 권한 거부).
+ * 저널만으로는 구별할 수 없어 `transcript.jsonl`의 거부 기록을 사람이 대조해야 했다.
+ * "0건이면 열렸는데 안 쓴 것"이라는 판정이 성립하려면 0건이 아닌 경우도 믿을 수 있어야 한다.
+ */
+export const SelfCheckSchema = z.object({
+  cmd: z.string(),
+  /** 런타임이 거부했다 — 열어 준 범위 밖이거나 패턴이 어긋났다. 없으면 실제로 돌았다 */
+  denied: z.literal(true).optional(),
+})
+export type SelfCheck = z.infer<typeof SelfCheckSchema>
+
+/**
  * 재확인이 실제로 다시 돌지 않았을 수 있다는 정황 한 건.
  *
  * 라운드 요약과 저널 이벤트가 **같은 모양을 쓴다** — 둘이 갈리면 리포트가 말하는 정황과

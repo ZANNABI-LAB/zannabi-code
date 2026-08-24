@@ -362,3 +362,31 @@ test('리포트가 소요시간을 적는다 — 조합 비교의 축 셋 중 �
   )
   expect(resumed).toContain('멎어 있던 시간 포함')
 })
+
+test('자기 확인은 시도가 아니라 실행을 센다', () => {
+  const base = { status: 'success' as const, attempts: 1, rounds: [round(1, 'aaa')] }
+
+  // 전부 돌았다
+  expect(
+    buildReport(base, '작업', undefined, undefined, {
+      selfChecks: [{ cmd: 'bun test' }, { cmd: './gradlew build' }],
+    }),
+  ).toContain('**self-checks**: 2건 (에이전트가 스스로 돌림 — 판정 아님)')
+
+  // 실측 1차의 모양 — 시도는 있었는데 전부 거부됐다. "13건"으로 적으면 거짓말이다
+  const denied = buildReport(base, '작업', undefined, undefined, {
+    selfChecks: [
+      { cmd: './gradlew test --tests "*A*"', denied: true },
+      { cmd: './gradlew build', denied: true },
+    ],
+  })
+  expect(denied).toContain('시도 2건 중 **0건만 실행**')
+  expect(denied).toContain('이 턴은 검증 없이 썼다')
+  // 무엇이 막혔는지 보여야 원인 규명이 된다 — 없으면 "왜 컴파일도 안 하고 썼나"에서 멈춘다
+  expect(denied).toContain('./gradlew test --tests "*A*"')
+
+  // 아예 안 돌린 것도 사실대로
+  expect(buildReport(base, '작업', undefined, undefined, { selfChecks: [] })).toContain(
+    '0건 — 에이전트가 검증 없이 썼다',
+  )
+})

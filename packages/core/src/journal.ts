@@ -18,6 +18,7 @@
 import { z } from 'zod'
 import {
   EvidenceSchema, RevisionSchema, GateSchema, DroppedGateSchema, RecheckSuspectSchema,
+  SelfCheckSchema,
 } from './goal'
 
 /**
@@ -154,7 +155,7 @@ export const JournalEventSchema = z.discriminatedUnion('type', [
      * 실측에서 컴파일 0회로 1,092줄을 쓴 턴이 있었는데, 그 사실은 `transcript.jsonl`의
      * 권한 거부를 사람이 세어야만 드러났다.
      */
-    selfChecks: z.array(z.string()).optional(),
+    selfChecks: z.array(SelfCheckSchema).optional(),
   }),
   /**
    * 게이트 하나가 시작됐다.
