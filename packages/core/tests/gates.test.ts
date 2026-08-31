@@ -142,3 +142,59 @@ test('판정할 수 없는 형태는 조용히 넘긴다 — 사전점검이 오
   expect(checkableWords('sh -c "a && b"')).toEqual(['sh'])
   expect(checkableWords('true')).toEqual([])
 })
+
+test('Go 시험 출력에서 실패와 패닉을 추려낸다', () => {
+  // 실제 `go test -v` 출력: 통과 줄들이 99%지만 실패와 패닉은 명확히 구분된다
+  // 오탐 축 = PASS 줄 비유입. stdout tail을 늘리지 않고 신호로 정확히 추린다
+  const output = [
+    '=== RUN   TestSwap',
+    '--- PASS: TestSwap (0.00s)',
+    '=== RUN   TestJournal',
+    '--- FAIL: TestJournal (0.01s)',
+    '    swap_test.go:42: expected 3, got 5',
+    '    panic: runtime error: index out of range [3]',
+    '    stack trace line 1',
+    '    stack trace line 2',
+    'ok  \tgithub.com/example/pkg\t0.011s',
+    '=== RUN   TestCleanup',
+    '--- PASS: TestCleanup (0.00s)',
+    'PASS',
+  ].join('\n')
+
+  const signals = signalLines(output)
+  expect(signals).toContain('--- FAIL: TestJournal (0.01s)')
+  expect(signals.some(l => l.includes('panic: runtime error'))).toBe(true)
+  // 통과 줄은 섞이지 않는다
+  expect(signals.some(l => l.includes('--- PASS:'))).toBe(false)
+  expect(signals.some(l => l === 'ok  \tgithub.com/example/pkg\t0.011s')).toBe(false)
+  expect(signals.some(l => l === 'PASS')).toBe(false)
+})
+
+test('Rust 시험 출력에서 컴파일 에러, 런타임 패닉, 시험 실패를 추려낸다', () => {
+  // 실제 `cargo build` + `cargo test` 출력: rustc 에러는 `[E####]` 형식
+  // 런타임 패닉은 `panicked at` (콜론 없음), 시험 실패는 `... FAILED` 형식
+  // 오탐 축 = ok 줄, test result 줄 비유입
+  const output = [
+    'Compiling zannabi v0.1.0',
+    'warning: unused variable: `x`',
+    '   --> src/lib.rs:12:5',
+    '    |',
+    'error[E0308]: mismatched types',
+    '  --> src/lib.rs:42:10',
+    '   |',
+    'error: could not compile `zannabi` (bin target `zannabi`)',
+    'test tests::adds ... ok',
+    'test tests::divides ... FAILED',
+    'thread \'tests::divides\' panicked at \'assertion failed\'',
+    '   at src/lib.rs:12:5',
+    'test result: ok. 3 passed; 1 failed;',
+  ].join('\n')
+
+  const signals = signalLines(output)
+  expect(signals.some(l => l.includes('error[E0308]'))).toBe(true)
+  expect(signals.some(l => l.includes('panicked at'))).toBe(true)
+  expect(signals).toContain('test tests::divides ... FAILED')
+  // ok 줄과 test result 줄은 섞이지 않는다
+  expect(signals.some(l => l.includes('... ok'))).toBe(false)
+  expect(signals.some(l => l.includes('test result:'))).toBe(false)
+})

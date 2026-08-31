@@ -47,6 +47,10 @@ const SIGNAL_PATTERNS = [
   /^\s*\d+\) /, // 시험 실패 목록
   /panic:/,
   /Traceback \(most recent call last\)/,
+  /^\s*--- FAIL: /, // Go 시험 실패 표준 머리. 통과는 `--- PASS:`라 갈린다
+  /^\s*error\[E\d+\]/, // rustc 진단. 기존 `/\berror:/i`가 `error[E0308]:`을 못 잡는 자리라 새로 필요
+  /thread '[^']*' panicked at/, // Rust 런타임 패닉. 기존 `/panic:/`는 콜론을 요구해서 이 형식을 놓친다
+  /^\s*test .+ \.\.\. FAILED/, // cargo test 개별 실패. 통과 줄 `... ok`와 명시적으로 갈린다
 ]
 
 /** 신호 줄은 이만큼만 싣는다. 이보다 많으면 그것대로 tail을 읽어야 할 신호다 */
