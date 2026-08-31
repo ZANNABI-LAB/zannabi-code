@@ -6,7 +6,7 @@
 
 [![license](https://img.shields.io/badge/license-Apache--2.0-blue)](LICENSE)
 [![runtime](https://img.shields.io/badge/runtime-Bun-black)](https://bun.sh)
-![tests](https://img.shields.io/badge/tests-341%20passing-brightgreen)
+![tests](https://img.shields.io/badge/tests-343%20passing-brightgreen)
 
 > **Shake the branch before you cross.** — 잔나비는 건너기 전에 가지를 흔들어본다
 
@@ -403,6 +403,12 @@ claude로 돌던 실행을 codex로 재개하면 남의 대화를 가리키며 �
 계획과 게이트는 사람이 승인한 그대로 유효하고, 잃는 것은 앞 턴의 대화 맥락뿐이며 실패 증거는
 어차피 프롬프트로 다시 들어간다. 러너는 그 사실을 재개 시작 줄에 적는다.
 
+> ⚠️ **워크트리에는 설치된 의존성이 없다.** `git worktree`는 추적된 파일만 가져오므로
+> `node_modules`·`vendor` 같은 gitignore된 디렉토리가 비어 있다. 게이트가 그것을 전제하면
+> 격리 실행에서만 실패한다 — 이 저장소에서 `bun test`를 그대로 게이트로 걸었더니 45건이
+> 깨졌다. **게이트에 설치를 포함하면 된다**: `bun install --frozen-lockfile --silent && bun test`.
+> Gradle·Maven처럼 빌드 도구가 의존성을 스스로 받는 프로젝트는 이 문제가 없다.
+
 기본값은 격리가 **꺼져 있다.** 한 줄 고치는 작업에까지 브랜치 병합을 붙이는 것은 값보다
 비용이 크다. 워크트리는 저장소 **밖**(시스템 임시 디렉토리)에 만든다 — 안에 두면 그 디렉토리가
 원본의 미추적 파일로 잡혀 원본의 diff에 섞이고, 격리하려던 것이 도로 오염원이 된다.
@@ -522,7 +528,7 @@ core 변경분은 두 어댑터가 공유하는 프로세스 구동 배관을 �
 ## 개발
 
 ```bash
-bun test        # 341개
+bun test        # 343개
 bun run typecheck
 ```
 
