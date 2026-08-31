@@ -218,6 +218,18 @@ export function renderStatus(
     lines.push(
       `🚨 증거 변조 흔적 — ${audit.detail}. 이 실행의 저널은 쓰인 그대로가 아닙니다`,
     )
+  /**
+   * **통과했을 때도 말한다.**
+   *
+   * 조용한 설계였는데 실측에서 걸렸다 — 아무 줄도 없으면 "검사가 돌았고 통과했다"와
+   * "검사가 아예 안 돌았다"를 사용자가 구별할 수 없다. 무결성은 **없을 때가 아니라
+   * 있을 때 신뢰를 만드는 값**이라, 통과 사실 자체가 화면에 있어야 한다.
+   *
+   * `unverifiable`(체인 없는 옛 저널)은 여전히 말하지 않는다 — 확인할 수 없다는 말을
+   * 매번 반복하면 진짜 경고가 그 소음에 묻힌다.
+   */
+  else if (audit?.ok && !('unverifiable' in audit && audit.unverifiable))
+    lines.push(`무결성: 저널 ${audit.verified}줄이 쓰인 그대로입니다`)
 
   if (state.losses.length > 0) {
     lines.push(`증거 손실 ${state.losses.length}건 — 이 실행의 판정은 증거로 뒷받침되지 않습니다`)

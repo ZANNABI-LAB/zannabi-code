@@ -6,7 +6,7 @@
 
 [![license](https://img.shields.io/badge/license-Apache--2.0-blue)](LICENSE)
 [![runtime](https://img.shields.io/badge/runtime-Bun-black)](https://bun.sh)
-![tests](https://img.shields.io/badge/tests-336%20passing-brightgreen)
+![tests](https://img.shields.io/badge/tests-339%20passing-brightgreen)
 
 > **Shake the branch before you cross.** — 잔나비는 건너기 전에 가지를 흔들어본다
 
@@ -14,7 +14,7 @@
 헤드리스 코딩 에이전트를 구동하며, 모든 완료 선언에 기계 검증 가능한 증거를 요구한다.
 
 > **상태: pre-1.0 (v0.0.1).** 실전에서 쓰고 있지만 인터페이스는 아직 바뀔 수 있다.
-> npm에 배포하지 않았으므로 설치는 이 저장소를 받아 `bun link` 한다.
+> npm에 배포하지 않았으므로 설치는 이 저장소를 받아 `cd packages/cli && bun link` 한다.
 > [러너 계약 v1](docs/contract-v1.md)만은 판 번호로 관리한다 — 다른 도구가 그것을 읽기 때문이다.
 
 ## 원리
@@ -39,7 +39,10 @@ zannabi run "결제 API에 재시도 로직 추가"
 
 ```bash
 bun install
-bun link          # zannabi 명령 등록 (생략하려면 bun run packages/cli/src/index.ts 로 대체)
+# zannabi 명령 등록. **`bin`이 있는 패키지에서 해야 한다** — 저장소 루트에서 하면
+# 루트 패키지가 등록될 뿐 명령이 서지 않는다(성공 메시지는 뜬다)
+(cd packages/cli && bun link)
+# 링크 없이 쓰려면: bun run packages/cli/src/index.ts <명령>
 
 zannabi run "작업 설명" --cwd /path/to/project --gate "test:bun test" --budget 3
 ```
@@ -519,7 +522,7 @@ core 변경분은 두 어댑터가 공유하는 프로세스 구동 배관을 �
 ## 개발
 
 ```bash
-bun test        # 336개
+bun test        # 339개
 bun run typecheck
 ```
 

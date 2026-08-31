@@ -162,6 +162,10 @@ export function buildReport(
       `- **integrity**: 🚨 변조 흔적 — ${audit.detail}.` +
         ` **아래 내용은 쓰인 그대로가 아닐 수 있습니다**`,
     )
+  // 통과 사실도 적는다 — 아무 줄이 없으면 "검사하고 통과"와 "검사 안 함"이 같아 보인다.
+  // 무결성은 없을 때가 아니라 있을 때 신뢰를 만드는 값이다
+  else if (audit?.ok && !('unverifiable' in audit && audit.unverifiable))
+    lines.push(`- **integrity**: 저널 ${audit.verified}줄 확인 — 쓰인 그대로`)
   if (selfChecks) lines.push(selfCheckLine(selfChecks))
   // 자기 확인 바로 아래에 둔다 — 위는 "무엇을 확인했나", 아래는 "무엇을 확인하지 못했나"
   lines.push(...claimsLines(claims, claimsReported))

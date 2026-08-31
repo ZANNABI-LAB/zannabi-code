@@ -72,7 +72,22 @@ function printPlan(plan: string, gates: Gate[], warnings: GateWarning[]) {
   console.log('\n===== 계획 =====\n')
   console.log(plan)
   console.log('\n===== 게이트 =====\n')
-  for (const g of gates) console.log(`  - ${g.name}: ${g.cmd}`)
+  /**
+   * **출처를 승인 화면에서 보인다.**
+   *
+   * 리포트와 `status`는 이미 출처를 찍고 있었는데 정작 승인 화면에는 없었다 —
+   * 그런데 사용자가 "이 게이트가 내가 정한 것인가, 에이전트가 제안한 것인가"를 판단하는
+   * 순간이 바로 여기다. 판정이 러너 밖 종료코드라는 주장은 **그 명령을 누가 골랐는지**를
+   * 함께 말해야 성립하고, 그것을 말할 유일한 자리가 승인 시점이다.
+   */
+  const suggestedCount = gates.filter(g => g.source !== 'user').length
+  for (const g of gates)
+    console.log(`  - [${g.source === 'user' ? '사용자' : '에이전트 제안'}] ${g.name}: ${g.cmd}`)
+  if (suggestedCount > 0)
+    console.log(
+      `\n  ⓘ ${suggestedCount}개는 에이전트가 제안한 완료 기준입니다 —` +
+        ` 승인하면 이것으로도 완료가 판정됩니다`,
+    )
   if (warnings.length > 0) {
     console.log('\n===== 경고 =====\n')
     // 실행을 막는 경고와 조언을 눈으로도 구별되게 한다 — 사람이 승인 여부를 가르는 기준이 다르다

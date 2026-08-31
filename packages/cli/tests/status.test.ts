@@ -336,3 +336,22 @@ test('변조 흔적은 증거 손실보다 먼저, 눈에 띄게 적는다', () 
   const old = renderStatus(state, new Date(), { audit: { ok: true, verified: 0, unverifiable: true } })
   expect(old).not.toContain('변조')
 })
+
+test('무결성은 통과했을 때도 말한다', () => {
+  // **실측 지적**: 통과 시 조용하면 "검사가 돌았고 통과"와 "검사가 안 돌았다"를
+  // 사용자가 구별할 수 없다. 무결성은 없을 때가 아니라 **있을 때 신뢰를 만드는 값**이다
+  const state = replay(
+    parseJournal(
+      JSON.stringify({
+        type: 'run-started', at: 't0', contractVersion: 1, runId: 'r', intent: 'i', cwd: '/x', budget: 3,
+      }) + '\n',
+    ),
+  )
+  expect(renderStatus(state, new Date(), { audit: { ok: true, verified: 13 } })).toContain(
+    '저널 13줄이 쓰인 그대로입니다',
+  )
+  // 확인할 수 없는 것은 여전히 말하지 않는다 — 매번 반복하면 진짜 경고가 묻힌다
+  expect(
+    renderStatus(state, new Date(), { audit: { ok: true, verified: 0, unverifiable: true } }),
+  ).not.toContain('무결성')
+})

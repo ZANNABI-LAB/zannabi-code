@@ -362,3 +362,24 @@ test('--yes: 사용자 게이트가 하나라도 있으면 제안 게이트가 �
   const out = await new Response(proc.stdout).text()
   expect(out).toContain('success')
 })
+
+test('승인 화면이 게이트 출처를 보인다 — 판단이 필요한 유일한 순간이다', async () => {
+  // **실측 지적**: 리포트와 status 는 출처를 찍는데 승인 화면에는 없었다. 그런데 사용자가
+  // "이 게이트를 내가 정했나, 에이전트가 제안했나"를 판단하는 순간이 바로 여기다.
+  // fake 어댑터의 계획이 게이트 하나를 제안하므로, 사용자 게이트와 섞여 나온다
+  const project = mkdtempSync(join(tmpdir(), 'zannabi-e2e-source-'))
+  const proc = Bun.spawn(
+    ['bun', cliPath, 'run', '테스트 작업', '--cwd', project, '--gate', 'mine:true'],
+    {
+      env: { ...process.env, ZANNABI_ADAPTER: 'fake' },
+      stdin: new Response('y\n').body!,
+      stdout: 'pipe',
+      stderr: 'pipe',
+    },
+  )
+  await proc.exited
+  const out = await new Response(proc.stdout).text()
+  expect(out).toContain('[사용자] mine:')
+  expect(out).toContain('[에이전트 제안] ok:')
+  expect(out).toContain('승인하면 이것으로도 완료가 판정됩니다')
+})

@@ -429,3 +429,10 @@ test('리포트가 변조 흔적을 판정 바로 아래에 적는다', () => {
   expect(text.indexOf('integrity')).toBeGreaterThan(text.indexOf('status'))
   expect(text.indexOf('integrity')).toBeLessThan(text.indexOf('## Gates'))
 })
+
+test('리포트도 무결성 통과를 적는다', () => {
+  const text = buildReport({ status: 'success', attempts: 1, rounds: [] }, '작업', undefined, undefined, {
+    audit: { ok: true, verified: 13 },
+  })
+  expect(text).toContain('저널 13줄 확인')
+})
