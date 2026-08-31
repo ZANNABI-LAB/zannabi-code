@@ -55,7 +55,8 @@ test('--worktree는 전용 워크트리에서 돌고 원본 워킹트리를 건�
   const runId = listRuns(cwd)[0]
   const branch = `zannabi/${runId}`
   expect(git(['rev-parse', '--verify', branch], cwd)).not.toBe('')
-  expect(run.out).toContain(`git merge ${branch}`)
+  // --squash 를 권한다: 라운드 커밋이 사람의 이력에 섞이지 않게. 실전에서 한 번 섞여 봤다
+  expect(run.out).toContain(`git merge --squash ${branch} && git commit`)
   // 브랜치에는 게이트가 만든 파일이 들어 있다
   expect(git(['show', `${branch}:gate-made.txt`], cwd)).toBe('')
   expect(git(['log', '--oneline', `main..${branch}`], cwd)).toContain('zannabi: round 1')

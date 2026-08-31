@@ -646,7 +646,10 @@ async function main() {
     const cleanup = await removeWorktree(cwd, worktree)
     if (commits > 0) {
       console.log(`[zannabi] 결과: 브랜치 ${worktree.branch} (커밋 ${commits}개)`)
-      console.log(`         git merge ${worktree.branch} 로 가져가세요`)
+      // **`--squash`를 권한다.** 라운드마다 커밋을 남기므로 그대로 병합하면
+      // `zannabi: round 1` 같은 러너 커밋이 사람의 이력에 섞인다.
+      // 라운드별 이력은 브랜치에 그대로 남으니 필요할 때 거기서 본다
+      console.log(`         git merge --squash ${worktree.branch} && git commit`)
     } else {
       console.log(`[zannabi] 브랜치 ${worktree.branch}에 커밋이 없습니다 — 바뀐 파일이 없었습니다`)
     }
