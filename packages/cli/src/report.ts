@@ -1,6 +1,6 @@
 import {
   addUsage, emptyUsage, CONFIG_FILENAME,
-  type Claim, type ConfigChange, type EvidenceLoss, type LoopResult, type SelfCheck, type Usage,
+  type Claim, type ConfigChange, type JournalAudit, type EvidenceLoss, type LoopResult, type SelfCheck, type Usage,
 } from '@zannabi-lab/core'
 import { duration } from './status'
 
@@ -89,6 +89,14 @@ export interface ReportMeta {
   claims?: Claim[]
   /** 요구한 형식으로 답했는가. `undefined`면 이 실행에는 신고 요구가 없었다(옛 저널) */
   claimsReported?: boolean
+  /**
+   * 저널 무결성 검사 결과.
+   *
+   * **리포트에 있어야 하는 이유**: 이 파일은 나중에 이 실행을 판단할 때 읽히는 요약인데,
+   * 요약이 근거의 신뢰도를 말하지 않으면 읽는 사람은 게이트 초록만 본다.
+   * 증거 손실은 이미 적고 있었고, 변조는 손실보다 나쁘다 — 없는 것이 아니라 있는데 틀렸다.
+   */
+  audit?: JournalAudit
 }
 
 /**
@@ -129,7 +137,7 @@ export function buildReport(
    */
   meta: ReportMeta = {},
 ): string {
-  const { resumeCount, elapsedMs, selfChecks, claims, claimsReported } = meta
+  const { resumeCount, elapsedMs, selfChecks, claims, claimsReported, audit } = meta
   const lines = [
     `# zannabi run report`,
     ``,
@@ -145,6 +153,15 @@ export function buildReport(
   // **판정과 다른 층이라는 것이 이 줄의 전부다.** 자체 확인은 완료를 만들지 않는다.
   // 0건이면 그 사실을 적는다 — 에이전트가 자기가 쓴 것이 도는지 모르고 썼다는 뜻이라,
   // 아래 게이트 결과를 읽을 때 알아야 하는 배경이다
+  /**
+   * **판정 바로 아래, 다른 무엇보다 먼저.** 저널이 쓰인 그대로가 아니라면 아래 모든 줄이
+   * 그 위에서 만들어진 것이므로, 읽는 순서에서 이것이 앞서야 한다.
+   */
+  if (audit && !audit.ok)
+    lines.push(
+      `- **integrity**: 🚨 변조 흔적 — ${audit.detail}.` +
+        ` **아래 내용은 쓰인 그대로가 아닐 수 있습니다**`,
+    )
   if (selfChecks) lines.push(selfCheckLine(selfChecks))
   // 자기 확인 바로 아래에 둔다 — 위는 "무엇을 확인했나", 아래는 "무엇을 확인하지 못했나"
   lines.push(...claimsLines(claims, claimsReported))

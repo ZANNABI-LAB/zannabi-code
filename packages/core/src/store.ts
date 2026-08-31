@@ -21,6 +21,7 @@ import {
   JOURNAL_FILENAME,
   parseJournal,
   serializeJournalEvent,
+  chainHash,
   type JournalEvent,
   type JournalInput,
 } from './journal'
@@ -59,6 +60,10 @@ export class RunStore {
    * 저널 파일 자체가 지워진 경우가 정확히 그 모양이다.
    */
   private reporting = false
+  /** 마지막으로 쓴 줄의 누적 해시. 재개는 파일에서 되읽어 이어 간다 */
+  private lastChain = ''
+  /** 마지막 줄 번호. 파싱이 건너뛴 줄과 실제로 사라진 줄을 감사가 가르는 근거다 */
+  private seq = 0
 
   constructor(projectDir: string, intent: string, now: Date = new Date(), runId?: string) {
     const stamp = now.toISOString().replace(/[:.]/g, '-')
@@ -76,7 +81,31 @@ export class RunStore {
    * 이 프로세스가 실제로 쓴 파일만 "사라졌다"고 말할 수 있다.
    */
   static open(projectDir: string, runId: string): RunStore {
-    return new RunStore(projectDir, '', new Date(), runId)
+    const store = new RunStore(projectDir, '', new Date(), runId)
+    /**
+     * **체인을 이어받는다.** 이것이 없으면 재개한 실행의 저널이 재개 지점부터 통째로
+     * 어긋나 보이고, 정상적인 재개가 매번 변조 경고를 낸다.
+     *
+     * 마지막 **줄**이 아니라 마지막 **체인 있는 줄**에서 잇는다 — kill -9가 남긴 반쪽 줄은
+     * 파싱에 실패해 걸러지고, 그 뒤에 이어 쓰는 것이 옳다.
+     */
+    try {
+      const path = join(store.dir, JOURNAL_FILENAME)
+      if (existsSync(path)) {
+        const events = parseJournal(readFileSync(path, 'utf-8'))
+        for (const event of events) {
+          if (event.seq !== undefined) store.seq = event.seq
+          if (event.chain !== undefined) store.lastChain = event.chain
+        }
+        // 이 프로세스가 쓴 것은 아니지만 **있는 파일**이다. 손실 추적이 이것을 모르면
+        // 재개 도중 저널이 지워져도 "우리가 쓴 적 없다"며 넘어간다
+        store.written.add(JOURNAL_FILENAME)
+      }
+    } catch {
+      // 되읽지 못하면 빈 체인에서 시작한다 — 감사가 그 지점을 짚어 주는 편이
+      // 조용히 이어 쓰는 것보다 낫다
+    }
+    return store
   }
 
   /**
@@ -139,7 +168,18 @@ export class RunStore {
    * 다만 그 손실 기록이 다시 저널 쓰기를 부르므로 {@link reporting}으로 한 번만 돈다.
    */
   appendJournal(input: JournalInput): JournalEvent {
-    const event = { ...input, at: new Date().toISOString() } as JournalEvent
+    /**
+     * 앞줄과 이어 붙인다 — 한 줄만 고쳐도 그 뒤가 전부 어긋나게.
+     *
+     * **재개가 이 체인을 이어야 한다.** 이어받은 프로세스가 빈 값에서 다시 시작하면
+     * 재개 지점부터 통째로 어긋나 보이고, 그러면 정상적인 재개가 매번 "변조됨"이 된다 —
+     * 그 경고는 한 번만 틀려도 아무도 안 믿게 된다. {@link RunStore.open}이 파일에서 되읽는다.
+     */
+    this.seq++
+    const withoutChain = { ...input, at: new Date().toISOString(), seq: this.seq }
+    const chain = chainHash(this.lastChain, withoutChain as Record<string, unknown>)
+    const event = { ...withoutChain, chain } as JournalEvent
+    this.lastChain = chain
     this.write(JOURNAL_FILENAME, serializeJournalEvent(event), true)
     return event
   }
@@ -210,7 +250,14 @@ export function resolveRun(
 
 /** 실행 디렉토리의 저널을 읽는다. 저널이 없으면 빈 배열 — 옛 실행에는 아예 없다 */
 export function readJournal(runDir: string) {
+  return parseJournal(readJournalText(runDir))
+}
+
+/**
+ * 저널 **원문**. 무결성 검사는 파싱된 객체가 아니라 이것을 다시 해싱해야 한다 —
+ * 재생은 줄의 내용을 읽을 뿐, 그 줄이 쓰인 뒤에 고쳐졌는지는 원문에서만 나온다.
+ */
+export function readJournalText(runDir: string): string {
   const path = join(runDir, JOURNAL_FILENAME)
-  if (!existsSync(path)) return []
-  return parseJournal(readFileSync(path, 'utf-8'))
+  return existsSync(path) ? readFileSync(path, 'utf-8') : ''
 }

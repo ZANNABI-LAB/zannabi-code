@@ -415,3 +415,17 @@ test('리포트가 게이트 밖 주장을 적는다 — 세 상태를 갈라서
   // 옛 실행에는 신고 요구가 없었다 — 없는 줄을 지어내지 않는다
   expect(buildReport(base, '작업')).not.toContain('unverified-claims')
 })
+
+test('리포트가 변조 흔적을 판정 바로 아래에 적는다', () => {
+  // report.md 는 나중에 이 실행을 판단할 때 읽히는 요약이다. 요약이 근거의 신뢰도를
+  // 말하지 않으면 읽는 사람은 게이트 초록만 본다
+  const text = buildReport({ status: 'success', attempts: 1, rounds: [] }, '작업', undefined, undefined, {
+    audit: { ok: false, at: 4, kind: 'modified', detail: '4번째 줄(gate-result)이 쓰인 뒤에 고쳐졌습니다' },
+  })
+  expect(text).toContain('integrity')
+  expect(text).toContain('변조 흔적')
+  expect(text).toContain('쓰인 그대로가 아닐 수 있습니다')
+  // 성공 판정보다 아래, 그러나 게이트 표보다는 위여야 한다
+  expect(text.indexOf('integrity')).toBeGreaterThan(text.indexOf('status'))
+  expect(text.indexOf('integrity')).toBeLessThan(text.indexOf('## Gates'))
+})

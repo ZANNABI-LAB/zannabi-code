@@ -41,8 +41,20 @@ const UsageSchema = z.object({
   turns: z.number(),
 })
 
-/** 모든 이벤트가 공유하는 것 — 무엇이, 언제 */
-const base = { at: z.string() }
+/**
+ * 모든 이벤트가 공유하는 것 — 무엇이, 언제, 그리고 **앞줄과의 연결**.
+ *
+ * `seq`·`chain`이 선택인 이유: 이 둘이 붙기 전에 쓰인 저널이 이미 있고, 필수로 만들면
+ * 옛 저널이 통째로 파싱 실패해 **읽을 수 있던 것까지 못 읽게 된다.** 없는 것은
+ * "검증할 수 없음"이지 "변조됨"이 아니다 — 그 둘을 섞으면 경고가 늑대 소년이 된다.
+ */
+const base = {
+  at: z.string(),
+  /** 1부터. 파싱이 건너뛴 줄과 실제로 사라진 줄을 가른다 */
+  seq: z.number().int().positive().optional(),
+  /** 앞줄까지의 누적 해시에 이 줄을 이어 만든 값. {@link auditJournal}이 다시 계산해 맞춰 본다 */
+  chain: z.string().optional(),
+}
 
 /**
  * 저널 어휘.
@@ -285,4 +297,87 @@ export function parseJournal(text: string): JournalEvent[] {
 
 export function serializeJournalEvent(event: JournalEvent): string {
   return JSON.stringify(event) + '\n'
+}
+
+/**
+ * 정준 직렬화 — 키를 정렬해 같은 내용이 언제나 같은 문자열이 되게 한다.
+ *
+ * `JSON.stringify`를 그대로 쓰면 **키 순서가 해시를 바꾼다.** 러너가 쓸 때와 감사가
+ * 다시 계산할 때 객체가 만들어진 경로가 달라 순서가 갈리면, 아무도 건드리지 않은 저널이
+ * "변조됨"으로 뜬다 — 그 순간 이 기능은 신호가 아니라 소음이 된다.
+ */
+function canonical(value: unknown): string {
+  if (value === null || typeof value !== 'object') return JSON.stringify(value) ?? 'null'
+  if (Array.isArray(value)) return `[${value.map(canonical).join(',')}]`
+  const entries = Object.entries(value as Record<string, unknown>)
+    .filter(([, v]) => v !== undefined)
+    .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
+  return `{${entries.map(([k, v]) => `${JSON.stringify(k)}:${canonical(v)}`).join(',')}}`
+}
+
+/**
+ * 이 줄까지의 누적 해시. 앞줄의 값을 재료로 쓰므로 **한 줄만 고쳐도 그 뒤가 전부 어긋난다.**
+ *
+ * `chain` 자신은 재료에서 뺀다 — 넣으면 자기를 참조하게 된다.
+ */
+export function chainHash(prev: string, event: Record<string, unknown>): string {
+  const { chain: _drop, ...rest } = event
+  return new Bun.CryptoHasher('sha256').update(`${prev}\n${canonical(rest)}`).digest('hex')
+}
+
+/**
+ * 저널이 쓰인 뒤에 고쳐졌는지 본다.
+ *
+ * **탐지이지 방지가 아니다.** 저널을 통째로 다시 계산하면 이 검사는 통과한다 —
+ * 비밀키 없이 위조를 막을 수는 없고, 키를 둘 곳도 없다(증거 옆에 두면 같이 읽힌다).
+ *
+ * 그런데도 값이 있는 이유는 **위협이 악의적 공격자가 아니기 때문**이다. 실제 위협은
+ * "테스트를 통과시켜라"는 지시를 받은 작업 에이전트이고, `evidence.json` 한 줄을 고치는 것과
+ * 러너의 해시 규칙을 알아내 체인 전체를 다시 잇는 것 사이에는 큰 거리가 있다.
+ *
+ * **끝에서 잘린 것은 변조가 아니다.** kill -9는 마지막 줄을 반쯤 쓴 채로 남기는데,
+ * 그것까지 변조라 부르면 정상적인 크래시가 매번 경고를 낸다.
+ */
+export type JournalAudit =
+  /** 체인이 처음부터 끝까지 맞는다 */
+  | { ok: true; verified: number }
+  /** 체인이 없는 옛 저널. **변조가 아니라 "확인할 수 없음"이다** */
+  | { ok: true; verified: 0; unverifiable: true }
+  /** 어긋난 지점이 있다 */
+  | { ok: false; at: number; kind: 'modified' | 'missing'; detail: string }
+
+export function auditJournal(text: string): JournalAudit {
+  const lines = text.split('\n').filter(l => l.trim())
+  const events = lines.map(l => parseJournalLine(l)).filter((e): e is JournalEvent => e !== null)
+  if (events.length === 0 || events.every(e => e.chain === undefined))
+    return { ok: true, verified: 0, unverifiable: true }
+
+  let prev = ''
+  let expectedSeq = 0
+  let verified = 0
+  for (const event of events) {
+    expectedSeq++
+    // 체인이 붙기 전 줄과 붙은 뒤 줄이 한 파일에 섞일 수 있다(기능이 추가된 날의 재개).
+    // 확인할 수 없는 줄은 건너뛰되 체인은 이어 간다 — 없는 것을 변조라 부르지 않는다
+    if (event.chain === undefined) continue
+    if (event.seq !== undefined && event.seq !== expectedSeq) {
+      return {
+        ok: false,
+        at: expectedSeq,
+        kind: 'missing',
+        detail: `${expectedSeq}번째 줄의 번호가 ${event.seq}입니다 — 앞의 줄이 지워졌거나 순서가 바뀌었습니다`,
+      }
+    }
+    const expected = chainHash(prev, event as unknown as Record<string, unknown>)
+    if (expected !== event.chain)
+      return {
+        ok: false,
+        at: expectedSeq,
+        kind: 'modified',
+        detail: `${expectedSeq}번째 줄(${event.type})이 쓰인 뒤에 고쳐졌습니다`,
+      }
+    prev = event.chain
+    verified++
+  }
+  return { ok: true, verified }
 }

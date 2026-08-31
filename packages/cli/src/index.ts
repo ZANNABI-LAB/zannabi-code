@@ -6,7 +6,7 @@ import { join } from 'node:path'
 import { createInterface } from 'node:readline/promises'
 import { resolve } from 'node:path'
 import {
-  RunStore, runLoop, FakeAdapter, fakeResult, GateSchema, loadConfig,
+  RunStore, runLoop, auditJournal, readJournalText, parseJournal, FakeAdapter, fakeResult, GateSchema, loadConfig,
   configFingerprint, compareConfig,
   PROFILES, PROFILE_NAMES, isProfileName,
   DEFAULT_STALL_LIMIT, DEFAULT_VERIFY_REPEAT, DEFAULT_GATE_TIMEOUT_MS, DEFAULT_BUDGET, CONFIG_FILENAME,
@@ -166,7 +166,7 @@ async function status(cwd: string, name?: string) {
     )
     process.exit(1)
   }
-  console.log(renderStatus(replay(events), new Date(), cwd))
+  console.log(renderStatus(replay(events), new Date(), { projectDir: cwd, audit: auditJournal(readJournalText(found.dir)) }))
 }
 
 async function main() {
@@ -595,7 +595,10 @@ async function main() {
   const elapsedMs =
     startedAt === undefined ? undefined : Date.now() - new Date(startedAt).getTime()
   // 저널이 정본이다 — 결과 객체가 아니라 실제로 쓰인 줄에서 읽는다
-  const journalState = replay(readJournal(store.dir))
+  const journalText = readJournalText(store.dir)
+  const journalState = replay(parseJournal(journalText))
+  // 무결성은 파싱된 객체가 아니라 원문에서 나온다 — 재생은 줄이 고쳐졌는지 모른다
+  const audit = auditJournal(journalText)
   const report = buildReport(result, intent, configChange, store.losses, {
     resumeCount,
     ...(elapsedMs !== undefined && elapsedMs >= 0 ? { elapsedMs } : {}),
@@ -605,6 +608,7 @@ async function main() {
     ...(journalState.claimsReported === undefined
       ? {}
       : { claims: journalState.claims ?? [], claimsReported: journalState.claimsReported }),
+    audit,
   })
   store.writeReport(report)
 

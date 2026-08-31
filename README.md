@@ -6,7 +6,7 @@
 
 [![license](https://img.shields.io/badge/license-Apache--2.0-blue)](LICENSE)
 [![runtime](https://img.shields.io/badge/runtime-Bun-black)](https://bun.sh)
-![tests](https://img.shields.io/badge/tests-327%20passing-brightgreen)
+![tests](https://img.shields.io/badge/tests-336%20passing-brightgreen)
 
 > **Shake the branch before you cross.** — 잔나비는 건너기 전에 가지를 흔들어본다
 
@@ -178,6 +178,20 @@ zannabi run "..." --plan-agent claude --exec-agent codex
 > 그 명령이 실재하므로 통과시켰다. 사람이 보는 실행에서는 승인 화면이 막고, `--yes`에서는
 > 이 규칙이 막는다. **제안 게이트가 섞이는 것 자체는 막지 않는다** — 실측에서 계획 에이전트가
 > 산문 제약을 게이트로 바꿔 붙여 값을 냈다. 막는 것은 기준 **전체**가 제안일 때다.
+
+**증거가 쓰인 그대로인가.** 저널의 모든 줄은 `seq`와 `chain`을 갖는다 — `chain`은 앞줄까지의
+누적 해시에 이 줄을 이어 만든 값이라, **한 줄만 고쳐도 그 뒤가 전부 어긋난다.**
+`zannabi status`와 `report.md`가 그 사실을 말한다.
+
+> **탐지이지 방지가 아니다.** 저널을 통째로 다시 계산하면 이 검사는 통과한다 — 비밀키 없이
+> 위조를 막을 수는 없고, 키를 둘 곳도 없다(증거 옆에 두면 같이 읽힌다). 그런데도 값이 있는
+> 이유는 위협이 악의적 공격자가 아니라 **"테스트를 통과시켜라"는 지시를 받은 작업 에이전트**
+> 이기 때문이다. `evidence.json` 한 줄을 고치는 것과 러너의 해시 규칙을 알아내 체인을 다시
+> 잇는 것 사이에는 큰 거리가 있다.
+>
+> 둘은 변조로 치지 않는다: **끝에서 잘린 저널**(`kill -9`가 그 모양이다)과 **체인이 없는
+> 옛 저널**. 뒤엣것은 "확인할 수 없음"이지 "변조됨"이 아니다 — 확인할 수 없는 것을 매번
+> 알리면 진짜 경고가 그 소음에 묻힌다.
 
 **게이트가 확인해 주지 않는 것.** 실행 턴은 마칠 때 **게이트가 보증하지 않는 주장**을
 신고한다 — 게이트가 안 건드리는 파일(화면 마크업·문서·설정), "다른 어떤 코드도 이 값을 읽지
@@ -505,7 +519,7 @@ core 변경분은 두 어댑터가 공유하는 프로세스 구동 배관을 �
 ## 개발
 
 ```bash
-bun test        # 327개
+bun test        # 336개
 bun run typecheck
 ```
 

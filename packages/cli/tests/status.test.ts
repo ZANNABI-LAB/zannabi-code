@@ -254,9 +254,9 @@ test('격리돼 돈 실행은 결과가 브랜치에 있다고 말한다', () =>
         .join('\n'),
     ),
   )
-  expect(renderStatus(state, new Date(), '/home/me/project')).toContain('브랜치 zannabi/r-1')
+  expect(renderStatus(state, new Date(), { projectDir: '/home/me/project' })).toContain('브랜치 zannabi/r-1')
   // 같은 자리에서 돌았으면 말하지 않는다 — 격리는 예외이지 기본이 아니다
-  expect(renderStatus(state, new Date(), '/tmp/zannabi-wt-x/work')).not.toContain('격리:')
+  expect(renderStatus(state, new Date(), { projectDir: '/tmp/zannabi-wt-x/work' })).not.toContain('격리:')
 })
 
 test('화면이 신고의 세 상태를 다르게 적는다', () => {
@@ -315,4 +315,24 @@ test('신고는 마지막 라운드의 것으로 갈아끼운다', () => {
   expect(state.claims).toEqual([])
   expect(renderStatus(state)).toContain('없다고 신고했습니다')
   expect(renderStatus(state)).not.toContain('1라운드 불확실')
+})
+
+test('변조 흔적은 증거 손실보다 먼저, 눈에 띄게 적는다', () => {
+  // 손실은 "증거가 없다", 변조는 "증거가 있는데 믿을 수 없다" — 뒤쪽이 더 나쁘다
+  const state = replay(
+    parseJournal(
+      [{ type: 'run-started', at: 't0', contractVersion: 1, runId: 'r', intent: 'i', cwd: '/x', budget: 3 }]
+        .map(e => JSON.stringify(e))
+        .join('\n'),
+    ),
+  )
+  const text = renderStatus(state, new Date(), {
+    audit: { ok: false, at: 11, kind: 'modified', detail: '11번째 줄(gate-result)이 쓰인 뒤에 고쳐졌습니다' },
+  })
+  expect(text).toContain('증거 변조 흔적')
+  expect(text).toContain('gate-result')
+
+  // 확인할 수 없는 것을 매번 알리면 진짜 경고가 그 소음에 묻힌다
+  const old = renderStatus(state, new Date(), { audit: { ok: true, verified: 0, unverifiable: true } })
+  expect(old).not.toContain('변조')
 })

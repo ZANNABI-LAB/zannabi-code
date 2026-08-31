@@ -9,7 +9,7 @@
  * 증명이고, 화면은 millim의 몫이다.
  */
 import type { ReplayState } from '@zannabi-lab/core'
-import { resumability, contractGap } from '@zannabi-lab/core'
+import { resumability, contractGap, type JournalAudit } from '@zannabi-lab/core'
 
 /** 경과를 사람의 말로. 초·분·시간 세 구간이면 충분하다 — 밀리초는 게이트에서나 의미가 있다 */
 export function duration(ms: number): string {
@@ -70,9 +70,11 @@ function costLine(state: ReplayState): string | undefined {
   return `비용: $${state.spentUsd.toFixed(4)}${limit}${partial}`
 }
 
-export function renderStatus(
-  state: ReplayState,
-  now: Date = new Date(),
+/**
+ * 저널 재생만으로는 알 수 없는 것들. **위치 인자로 늘리지 않는다** —
+ * `buildReport`가 같은 이유로 이미 객체를 받는다. 여기 실리는 값은 앞으로도 늘어날 자리다.
+ */
+export interface StatusContext {
   /**
    * 증거를 찾은 프로젝트 경로. **저널의 `cwd`와 다르면 그 실행은 격리돼 돌았다.**
    *
@@ -80,8 +82,20 @@ export function renderStatus(
    * 사실을 이미 담고 있는데 화면이 안 쓰면, 나중에 증거를 보는 사람은 워킹트리에 변경이
    * 없는데 `success`인 실행을 보고 어리둥절해진다 — 결과는 브랜치에 있다.
    */
-  projectDir?: string,
+  projectDir?: string
+  /**
+   * 저널 무결성 검사 결과. **재생된 상태로는 알 수 없다** — 재생은 줄의 내용을 읽을 뿐,
+   * 그 줄이 쓰인 뒤에 고쳐졌는지는 원문을 다시 해싱해야 안다.
+   */
+  audit?: JournalAudit
+}
+
+export function renderStatus(
+  state: ReplayState,
+  now: Date = new Date(),
+  context: StatusContext = {},
 ): string {
+  const { projectDir, audit } = context
   const lines: string[] = []
   const head = state.phase === 'finished' ? `${PHASE_TEXT.finished} (${state.status})` : PHASE_TEXT[state.phase]
   /**
@@ -192,6 +206,18 @@ export function renderStatus(
 
   const cost = costLine(state)
   if (cost) lines.push(cost)
+
+  /**
+   * **증거 손실 바로 위에 둔다.** 둘은 같은 물음의 두 형태다 — 손실은 "증거가 없다",
+   * 변조는 "증거가 있는데 믿을 수 없다". 뒤쪽이 더 나쁘다.
+   *
+   * `unverifiable`(체인 없는 옛 저널)은 말하지 않는다. 확인할 수 없는 것을 매번 알리면
+   * 옛 실행을 볼 때마다 뜨고, 그러면 진짜 경고가 그 소음에 묻힌다
+   */
+  if (audit && !audit.ok)
+    lines.push(
+      `🚨 증거 변조 흔적 — ${audit.detail}. 이 실행의 저널은 쓰인 그대로가 아닙니다`,
+    )
 
   if (state.losses.length > 0) {
     lines.push(`증거 손실 ${state.losses.length}건 — 이 실행의 판정은 증거로 뒷받침되지 않습니다`)
