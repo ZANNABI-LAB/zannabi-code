@@ -1,7 +1,7 @@
 #!/usr/bin/env bun
 // packages/cli/src/index.ts
 import { parseArgs } from 'node:util'
-import { readFileSync, existsSync, writeFileSync } from 'node:fs'
+import { readFileSync, existsSync, writeFileSync, appendFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { createInterface } from 'node:readline/promises'
 import { resolve } from 'node:path'
@@ -15,7 +15,7 @@ import {
   parseArm, manifest,
   type Worktree, type Round,
   type ResumeState,
-  type Gate, type GateWarning, type AgentAdapter, type ApprovalDecision, type Profile,
+  type Gate, type GateWarning, type AgentAdapter, type AgentRequest, type ApprovalDecision, type Profile,
 } from '@zannabi-lab/core'
 import { renderStatus, renderRunLine } from './status'
 import { runRace, renderRace, RACES_DIR } from './race'
@@ -39,10 +39,34 @@ interface RuntimeChoice {
 
 const FAKE_PLAN = '계획: 한다.\n```json\n{"gates":[{"name":"ok","cmd":"true"}]}\n```'
 
+/**
+ * E2E용: 어댑터가 **실제로 받은 요청**을 파일에 남긴다. `ZANNABI_FAKE_TRACE`가 있을 때만 돈다.
+ *
+ * **왜 프로덕션 파일에 이 배관이 필요한가**: CLI가 옵션을 어댑터까지 넘기는지는 여기서만
+ * 관측된다. `runLoop`·`runRace`를 직접 부르는 시험은 인자를 자기가 만들어 넘기므로
+ * **CLI의 인자 구성이 틀려도 통과한다.** 실제로 그런 결함이 있었다 — `--no-exec-shell`이
+ * race에서 무시됐는데, 원인은 `execShell` 선언이 race 호출보다 **뒤에 있어 넘길 수조차
+ * 없던 것**이었다. 그 층을 보는 시험이 없어서 실전에서야 드러났다.
+ *
+ * `ZANNABI_ADAPTER=fake`라는 같은 성격의 배관이 이미 있고, 둘 다 환경변수 없이는 죽어 있다.
+ */
+function traceRequest(request: AgentRequest) {
+  const path = process.env.ZANNABI_FAKE_TRACE
+  if (!path) return
+  try {
+    appendFileSync(path, JSON.stringify({
+      cwd: request.cwd,
+      allowedCommands: request.allowedCommands ?? null,
+    }) + '\n')
+  } catch {
+    // 추적 실패가 실행을 막지 않는다 — 이것은 관측 장치이지 기능이 아니다
+  }
+}
+
 function pickAdapter({ agent, model }: RuntimeChoice): AgentAdapter {
   if (process.env.ZANNABI_ADAPTER === 'fake') {
     // E2E용: 계획(게이트 true 제안) + 실행 응답
-    return new FakeAdapter([fakeResult(FAKE_PLAN), fakeResult('실행했습니다.')])
+    return new FakeAdapter([fakeResult(FAKE_PLAN), fakeResult('실행했습니다.')], traceRequest)
   }
   /**
    * E2E용: **실행 턴이 파일을 쓰고 나서 실패한다.**
