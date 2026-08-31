@@ -355,3 +355,25 @@ test('무결성은 통과했을 때도 말한다', () => {
     renderStatus(state, new Date(), { audit: { ok: true, verified: 0, unverifiable: true } }),
   ).not.toContain('무결성')
 })
+
+test('목록에서도 변조된 실행이 성공처럼 보이지 않는다', () => {
+  // 증거 손실은 이미 목록에 찍히는데 변조는 안 찍혀서, 고쳐진 실행이 `✅ success`로 보였다.
+  // 목록만 훑고 지나가는 사람에게는 그것이 유일하게 본 화면이다 — 그리고 변조가 손실보다 나쁘다
+  const state = replay(
+    parseJournal(
+      [
+        { type: 'run-started', at: 't0', contractVersion: 1, runId: 'r', intent: 'i', cwd: '/x', budget: 3 },
+        { type: 'run-finished', at: 't1', status: 'success', attempts: 1 },
+      ]
+        .map(e => JSON.stringify(e))
+        .join('\n'),
+    ),
+  )
+  const forged = renderRunLine('r', state, {
+    audit: { ok: false, at: 3, kind: 'modified', detail: '3번째 줄이 고쳐졌습니다' },
+  })
+  expect(forged).toContain('변조')
+
+  // 정상 실행에는 아무 표시도 붙지 않는다 — 통과를 목록에서까지 떠들면 줄이 길어지기만 한다
+  expect(renderRunLine('r', state, { audit: { ok: true, verified: 9 } })).not.toContain('변조')
+})

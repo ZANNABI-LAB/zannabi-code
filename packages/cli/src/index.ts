@@ -160,8 +160,16 @@ async function status(cwd: string, name?: string) {
       process.exit(1)
     }
     for (const runId of runs.slice(0, 20)) {
-      const events = readJournal(`${cwd}/${RUNS_DIR}/${runId}`)
-      console.log(renderRunLine(runId, replay(events), events.length > 0))
+      const dir = `${cwd}/${RUNS_DIR}/${runId}`
+      // 원문을 한 번 읽어 재생과 감사에 함께 쓴다 — 목록에서도 변조된 실행이
+      // ✅ 로 보이면 안 된다. 저널은 작아서(실측 22줄 59KB) 20건 해싱은 무시할 만하다
+      const text = readJournalText(dir)
+      console.log(
+        renderRunLine(runId, replay(parseJournal(text)), {
+          hasJournal: text.trim().length > 0,
+          audit: auditJournal(text),
+        }),
+      )
     }
     if (runs.length > 20) console.log(`... 외 ${runs.length - 20}건`)
     return

@@ -269,9 +269,10 @@ export function renderStatus(
 export function renderRunLine(
   runId: string,
   state: ReplayState,
-  hasJournal = true,
-  now: Date = new Date(),
+  /** 위치 인자로 늘리지 않는다 — {@link renderStatus}가 같은 이유로 이미 객체를 받는다 */
+  opts: { hasJournal?: boolean; now?: Date; audit?: JournalAudit } = {},
 ): string {
+  const { hasJournal = true, now = new Date(), audit } = opts
   if (!hasJournal) return `· ${runId}  저널 없음 (저널을 쓰기 전 판으로 돌린 실행입니다)`
   const mark = state.phase === 'finished' ? (state.status === 'success' ? '✅' : '❌') : '⏳'
   const what =
@@ -279,6 +280,13 @@ export function renderRunLine(
   const rounds = `${state.rounds.length}${state.budget === undefined ? '' : `/${state.budget}`}R`
   const cost = state.spentUsd === undefined ? '' : ` · $${state.spentUsd.toFixed(2)}`
   const lost = state.losses.length > 0 ? ' · 증거손실' : ''
+  /**
+   * **변조는 손실보다 나쁘다 — 목록에서도 보여야 한다.**
+   *
+   * 증거 손실은 이미 목록에 찍히는데 변조는 안 찍혀서, 고쳐진 실행이 목록에서 `✅ success`로
+   * 보였다. 목록만 훑고 지나가는 사람에게는 그것이 유일하게 본 화면이다.
+   */
+  const forged = audit && !audit.ok ? ' · 🚨변조' : ''
   // 목록에서 race의 조들이 서로 무관한 실행으로 보이지 않게 한다
   const race = state.raceId ? ' · race' : ''
   // 목록에서도 한 번에 돈 실행과 구분되어야 한다 — 실행 시간과 라운드 수를 비교하는
@@ -287,5 +295,5 @@ export function renderRunLine(
   // 진행 중인 실행은 무음 경과를 함께 — 목록만 보고도 멎은 것 같은지 가늠할 수 있어야 한다
   const quiet = state.phase === 'finished' ? undefined : silence(state.lastEventAt, now)
   const idle = quiet ? ` · ${quiet.text} 조용` : ''
-  return `${mark} ${runId}  ${what} · ${rounds}${cost}${lost}${race}${resumed}${idle}`
+  return `${mark} ${runId}  ${what} · ${rounds}${cost}${forged}${lost}${race}${resumed}${idle}`
 }

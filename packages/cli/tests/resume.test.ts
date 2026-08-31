@@ -2,7 +2,7 @@ import { test, expect } from 'bun:test'
 import { mkdtempSync, readFileSync, existsSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { listRuns, resolveRun, readJournal, replay, JOURNAL_FILENAME } from '@zannabi-lab/core'
+import { listRuns, resolveRun, readJournal, replay, JOURNAL_FILENAME, auditJournal, readJournalText } from '@zannabi-lab/core'
 
 const CLI = join(import.meta.dir, '..', 'src', 'index.ts')
 
@@ -153,3 +153,35 @@ test('실행 런타임이 바뀐 재개는 세션을 이어받지 않고 그 사
   expect(again.out).toContain('세션을 이어받지 않고 새로 시작합니다')
   expect(again.out).toContain('계획과 게이트는 승인된 그대로')
 }, 60_000)
+
+test('kill -9로 죽였다 이어 돈 실행의 저널도 무결성 검사를 통과한다', async () => {
+  // **단위 시험(integrity.test.ts)은 `RunStore.open`을 직접 불러 체인을 이었다.**
+  // 그것과 진짜 죽은 프로세스가 남기는 것은 다를 수 있다 — 반쯤 쓰인 마지막 줄이 남고,
+  // 그 뒤에 다른 프로세스가 이어 쓴다. 재개가 흔한 경로인 만큼 여기서 거짓 경고가 나면
+  // **한 번만 틀려도 그 경고를 영영 못 믿게 된다.**
+  const cwd = mkdtempSync(join(tmpdir(), 'zannabi-resume-chain-'))
+  const proc = spawnRun(cwd, ['run', '체인 이어받기', '--yes', '--gate', 'slow:sleep 5'])
+  await sleep(2500)
+  proc.kill(9)
+  await proc.exited
+
+  const again = await output(spawnRun(cwd, ['resume']))
+  expect(again.code).toBe(0)
+
+  const found = resolveRun(cwd, '')
+  expect(found.ok).toBe(true)
+  if (!found.ok) return
+  const audit = auditJournal(readJournalText(found.dir))
+  expect(audit.ok).toBe(true)
+  // 끊긴 지점 앞뒤가 한 체인으로 이어져야 한다 — 재개분까지 세어진다
+  if (audit.ok && !('unverifiable' in audit)) expect(audit.verified).toBeGreaterThan(8)
+
+  // 화면도 통과를 말해야 한다. 재개한 실행에서 이 줄이 빠지면
+  // "검사가 돌았고 통과"와 "검사가 안 돌았다"가 다시 같아 보인다
+  const status = await output(spawnRun(cwd, ['status', found.runId]))
+  expect(status.out).toContain('쓰인 그대로입니다')
+  expect(status.out).not.toContain('변조')
+  // 목록 화면에도 거짓 경고가 없어야 한다 — 목록만 훑는 사람에게는 그것이 유일한 화면이다
+  const list = await output(spawnRun(cwd, ['status']))
+  expect(list.out).not.toContain('변조')
+}, 90_000)
