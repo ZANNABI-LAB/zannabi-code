@@ -66,6 +66,40 @@ function selfCheckSection(open: string[], closed: string[]): string {
   return out
 }
 
+/**
+ * 게이트 밖 주장을 신고하게 하는 절.
+ *
+ * **산문으로 요구해 봤고 실패했다.** 실측 지시서에 "확인한 것과 확인하지 못한 것을 나눠
+ * 적어라"가 있었는데도 뒤쪽이 비었고, 바로 그 자리에서 에이전트가 틀렸다.
+ * 그래서 형식을 강제하고, 러너가 파싱한다 — 빈 목록을 **내는 것**과 아무것도 안 내는 것이
+ * 갈려야 "없다고 말했다"가 검증 가능한 진술이 된다.
+ *
+ * **셸을 열어 준 것이 이 문제를 만들었다는 사실을 프롬프트가 말한다.** 대부분 돌릴 수 있게
+ * 되면 돌릴 수 없는 나머지가 눈에 안 띈다 — 그것을 알려 주는 것이 지시의 요점이다.
+ *
+ * 판정에 쓰지 않는다는 것도 함께 밝힌다. 신고가 완료를 좌우한다고 오해하면 에이전트는
+ * 신고를 줄이는 쪽으로 움직이고, 그러면 이 절이 정확히 반대 효과를 낸다.
+ */
+const CLAIMS_SECTION =
+  `\n\nBefore finishing, report what the gates do NOT cover.\n\n` +
+  `The runner will re-run the verification commands itself, so anything they check is already ` +
+  `covered — do not list it. What matters is the opposite: statements you are making that no ` +
+  `command in this project will confirm. Typical sources are files no gate touches (UI markup, ` +
+  `docs, config), claims about what code does NOT do ("nothing else reads this value"), and ` +
+  `behaviour you reasoned about but did not execute.\n\n` +
+  `Being able to run commands makes this harder to notice, not easier: when most things are ` +
+  `checkable, the few that are not stop standing out. Those are the ones that tend to be wrong.\n\n` +
+  `This report does NOT decide completion — the runner's gate results do. Listing more does not ` +
+  `hurt you. Listing nothing when something exists does hurt the person reading your work.\n\n` +
+  `End your reply with exactly one JSON code block. If everything you claim is gate-covered, ` +
+  `say so with an empty list — an empty list and a missing block are not the same thing:\n` +
+  '```json\n' +
+  `{"claims": [{"claim": "the settings page still renders after the rename", ` +
+  `"basis": "read", "why": "no gate loads the HTML"}]}\n` +
+  '```\n' +
+  `basis: "read" = you read the relevant code; "inferred" = you reasoned without reading it ` +
+  `end to end; "unverified" = you are not sure.`
+
 export function executePrompt(
   plan: string,
   feedback?: string,
@@ -80,7 +114,8 @@ export function executePrompt(
   return (
     `Execute this plan. Modify files as needed.\n\n${PROTECT_EVIDENCE}` +
     selfCheckSection(openCmds, closedCmds) +
-    `\n\nPlan:\n${plan}${retry}`
+    `\n\nPlan:\n${plan}${retry}` +
+    CLAIMS_SECTION
   )
 }
 

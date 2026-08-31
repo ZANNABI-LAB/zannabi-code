@@ -19,6 +19,7 @@ import { z } from 'zod'
 import {
   EvidenceSchema, RevisionSchema, GateSchema, DroppedGateSchema, RecheckSuspectSchema,
   SelfCheckSchema,
+  ClaimSchema,
 } from './goal'
 
 /**
@@ -156,6 +157,24 @@ export const JournalEventSchema = z.discriminatedUnion('type', [
      * 권한 거부를 사람이 세어야만 드러났다.
      */
     selfChecks: z.array(SelfCheckSchema).optional(),
+  }),
+  /**
+   * 실행 턴이 **게이트 밖 주장**을 신고했다 — 또는 신고하지 않았다.
+   *
+   * **`reported: false`가 이 이벤트의 존재 이유다.** 신고가 없을 때 이벤트를 아예 안 쓰면
+   * "요구를 무시했다"와 "이 실행에는 그 요구가 없었다"가 저널에서 같아 보인다.
+   * 요구했는데 답이 없었다는 사실 자체가 기록되어야, 빈 목록(=없다고 말했다)과
+   * 무응답(=말하지 않았다)이 갈린다 — 실측에서 그 둘을 구별할 수 없어 판단이 막혔다.
+   *
+   * **판정과 다른 층이다.** 여기 무엇이 실리든 완료는 러너의 게이트 결과로만 정해진다.
+   */
+  z.object({
+    ...base,
+    type: z.literal('claims-reported'),
+    round: z.number().int().positive(),
+    /** 요구한 형식으로 답했는가. false면 아래 `claims`는 비어 있고, 그것은 "없다"가 아니다 */
+    reported: z.boolean(),
+    claims: z.array(ClaimSchema),
   }),
   /**
    * 게이트 하나가 시작됐다.

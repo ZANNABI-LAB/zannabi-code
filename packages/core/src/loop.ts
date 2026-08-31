@@ -1,6 +1,6 @@
 import { addUsage, emptyUsage, type AgentAdapter, type Usage } from './adapter'
 import type { Gate, Evidence, Round, DroppedGate } from './goal'
-import { extractGates, mergeGates } from './goal'
+import { extractGates, extractClaims, mergeGates } from './goal'
 import { runGate, preflightGates, type GateWarning } from './gates'
 import { planPrompt, executePrompt, failureSummary } from './prompts'
 import { captureRevision } from './revision'
@@ -645,6 +645,22 @@ async function runLoopWith(
       ...(exec.selfChecks === undefined ? {} : { selfChecks: exec.selfChecks }),
     })
     noteCost()
+
+    /**
+     * 게이트 밖 주장을 신고받는다. **판정 전에 적는 이유**: 게이트 결과를 보고 나서 적으면
+     * 통과한 실행의 신고와 실패한 실행의 신고가 다른 조건에서 나온 것이 된다.
+     * 이것은 이 턴이 무엇을 알고 무엇을 몰랐는지의 기록이지 판정의 입력이 아니다.
+     *
+     * 실행 턴이 실패한 경우에도 적는다 — 죽기 전까지 무엇을 주장했는지가 사라지면,
+     * 실패를 진단하는 사람이 그 턴의 자기 인식을 볼 수 없다.
+     */
+    const claimReport = extractClaims(exec.finalText ?? '')
+    opts.store.appendJournal({
+      type: 'claims-reported',
+      round: attempt,
+      reported: claimReport.reported,
+      claims: claimReport.reported ? claimReport.claims : [],
+    })
 
     if (!exec.ok)
       return {

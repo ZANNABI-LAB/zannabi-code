@@ -1,6 +1,6 @@
 import {
   addUsage, emptyUsage, CONFIG_FILENAME,
-  type ConfigChange, type EvidenceLoss, type LoopResult, type SelfCheck, type Usage,
+  type Claim, type ConfigChange, type EvidenceLoss, type LoopResult, type SelfCheck, type Usage,
 } from '@zannabi-lab/core'
 import { duration } from './status'
 
@@ -82,6 +82,36 @@ export interface ReportMeta {
    * 거부된 것은 `denied`로 갈린다 — 시도만 세면 리포트가 거짓말을 한다.
    */
   selfChecks?: SelfCheck[]
+  /**
+   * 실행 턴이 신고한 게이트 밖 주장. **`claimsReported`와 짝으로 읽어야 한다** —
+   * 빈 배열에는 "없다고 말했다"와 "말하지 않았다" 두 뜻이 있고 둘은 전혀 다르다.
+   */
+  claims?: Claim[]
+  /** 요구한 형식으로 답했는가. `undefined`면 이 실행에는 신고 요구가 없었다(옛 저널) */
+  claimsReported?: boolean
+}
+
+/**
+ * 게이트가 확인해 주지 않는 주장을 리포트에 적는다.
+ *
+ * **리포트에 있어야 하는 이유**: `report.md`는 증거의 일부이고, 나중에 이 실행을 읽는
+ * 사람이 게이트 결과만 보면 초록만 본다. 게이트가 **덮지 않은 자리**는 초록에 안 나타난다 —
+ * 실측에서 에이전트가 게이트 밖 사실을 단언했고 그것이 틀렸는데, 리포트 어디에도
+ * 그 단언이 검증되지 않았다는 표시가 없었다.
+ */
+function claimsLines(claims: Claim[] | undefined, reported: boolean | undefined): string[] {
+  if (reported === undefined) return []
+  if (reported === false)
+    return [
+      `- **unverified-claims**: 신고 없음 — 요구한 형식의 답이 없습니다.` +
+        ` **"게이트 밖 주장이 없다"는 뜻이 아닙니다**`,
+    ]
+  const list = claims ?? []
+  if (list.length === 0) return ['- **unverified-claims**: 없다고 신고함']
+  return [
+    `- **unverified-claims**: ${list.length}건 — 아래 주장은 게이트가 보증하지 않습니다`,
+    ...list.map(c => `  - [${c.basis}] ${c.claim}${c.why ? ` — ${c.why}` : ''}`),
+  ]
 }
 
 export function buildReport(
@@ -99,7 +129,7 @@ export function buildReport(
    */
   meta: ReportMeta = {},
 ): string {
-  const { resumeCount, elapsedMs, selfChecks } = meta
+  const { resumeCount, elapsedMs, selfChecks, claims, claimsReported } = meta
   const lines = [
     `# zannabi run report`,
     ``,
@@ -116,6 +146,8 @@ export function buildReport(
   // 0건이면 그 사실을 적는다 — 에이전트가 자기가 쓴 것이 도는지 모르고 썼다는 뜻이라,
   // 아래 게이트 결과를 읽을 때 알아야 하는 배경이다
   if (selfChecks) lines.push(selfCheckLine(selfChecks))
+  // 자기 확인 바로 아래에 둔다 — 위는 "무엇을 확인했나", 아래는 "무엇을 확인하지 못했나"
+  lines.push(...claimsLines(claims, claimsReported))
   // 한 번에 돈 실행과 죽었다 이어 돈 실행은 다른 실행이다 — attempts만으로는 갈리지 않는다
   if (resumeCount)
     lines.push(

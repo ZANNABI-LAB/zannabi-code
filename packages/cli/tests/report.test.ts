@@ -390,3 +390,28 @@ test('자기 확인은 시도가 아니라 실행을 센다', () => {
     '0건 — 에이전트가 검증 없이 썼다',
   )
 })
+
+test('리포트가 게이트 밖 주장을 적는다 — 세 상태를 갈라서', () => {
+  // report.md 는 증거의 일부다. 나중에 읽는 사람이 게이트 결과만 보면 초록만 보는데,
+  // 게이트가 덮지 않은 자리는 초록에 나타나지 않는다 — 실측에서 에이전트가 게이트 밖
+  // 사실을 단언했고 그것이 틀렸는데, 리포트 어디에도 그 표시가 없었다
+  const base = { status: 'success' as const, attempts: 1, rounds: [] }
+
+  const silent = buildReport(base, '작업', undefined, undefined, { claimsReported: false })
+  expect(silent).toContain('신고 없음')
+  expect(silent).toContain('뜻이 아닙니다')
+
+  const none = buildReport(base, '작업', undefined, undefined, { claimsReported: true, claims: [] })
+  expect(none).toContain('없다고 신고함')
+
+  const some = buildReport(base, '작업', undefined, undefined, {
+    claimsReported: true,
+    claims: [{ claim: '문서만 바꿨다', basis: 'read', why: '문서를 검사하는 게이트가 없다' }],
+  })
+  expect(some).toContain('1건')
+  expect(some).toContain('[read] 문서만 바꿨다')
+  expect(some).toContain('문서를 검사하는 게이트가 없다')
+
+  // 옛 실행에는 신고 요구가 없었다 — 없는 줄을 지어내지 않는다
+  expect(buildReport(base, '작업')).not.toContain('unverified-claims')
+})

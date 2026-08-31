@@ -258,3 +258,61 @@ test('격리돼 돈 실행은 결과가 브랜치에 있다고 말한다', () =>
   // 같은 자리에서 돌았으면 말하지 않는다 — 격리는 예외이지 기본이 아니다
   expect(renderStatus(state, new Date(), '/tmp/zannabi-wt-x/work')).not.toContain('격리:')
 })
+
+test('화면이 신고의 세 상태를 다르게 적는다', () => {
+  // 신고 없음 · 없다고 말함 · N건은 전부 다른 사실이다. 화면에서 같아 보이면
+  // 이 기능이 만들어진 이유(회피인지 정말 없는지 구별)가 사라진다
+  const journalWith = (extra: object[]) =>
+    replay(
+      parseJournal(
+        [
+          { type: 'run-started', at: 't0', contractVersion: 1, runId: 'r', intent: 'i', cwd: '/x', budget: 3 },
+          ...extra,
+        ]
+          .map(e => JSON.stringify(e))
+          .join('\n'),
+      ),
+    )
+
+  const silent = renderStatus(journalWith([{ type: 'claims-reported', at: 't1', round: 1, reported: false, claims: [] }]))
+  expect(silent).toContain('신고하지 않았습니다')
+  expect(silent).toContain('없다는 뜻이 아닙니다')
+
+  const none = renderStatus(journalWith([{ type: 'claims-reported', at: 't1', round: 1, reported: true, claims: [] }]))
+  expect(none).toContain('없다고 신고했습니다')
+  expect(none).not.toContain('신고하지 않았습니다')
+
+  const some = renderStatus(
+    journalWith([
+      {
+        type: 'claims-reported', at: 't1', round: 1, reported: true,
+        claims: [{ claim: '설정 화면은 여전히 뜬다', basis: 'read', why: 'HTML을 여는 게이트가 없다' }],
+      },
+    ]),
+  )
+  expect(some).toContain('1건')
+  expect(some).toContain('설정 화면은 여전히 뜬다')
+  expect(some).toContain('[read]')
+
+  // 옛 저널에는 신고 요구 자체가 없었다 — 아무 말도 하지 않는다
+  expect(renderStatus(journalWith([]))).not.toContain('게이트 밖 주장')
+})
+
+test('신고는 마지막 라운드의 것으로 갈아끼운다', () => {
+  // 2라운드에서 해소한 불확실을 1라운드의 신고와 함께 쌓아 보여주면,
+  // 이미 없어진 것을 남아 있는 것처럼 읽게 된다 (selfChecks 는 반대로 누적한다)
+  const state = replay(
+    parseJournal(
+      [
+        { type: 'run-started', at: 't0', contractVersion: 1, runId: 'r', intent: 'i', cwd: '/x', budget: 3 },
+        { type: 'claims-reported', at: 't1', round: 1, reported: true, claims: [{ claim: '1라운드 불확실', basis: 'inferred' }] },
+        { type: 'claims-reported', at: 't2', round: 2, reported: true, claims: [] },
+      ]
+        .map(e => JSON.stringify(e))
+        .join('\n'),
+    ),
+  )
+  expect(state.claims).toEqual([])
+  expect(renderStatus(state)).toContain('없다고 신고했습니다')
+  expect(renderStatus(state)).not.toContain('1라운드 불확실')
+})

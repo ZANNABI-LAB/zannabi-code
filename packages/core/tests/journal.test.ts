@@ -58,6 +58,9 @@ test('성공한 실행의 저널이 어휘 순서대로 쌓인다', async () => 
     'approval-resolved',
     'round-started',
     'exec-finished',
+    // 실행 턴 직후, 게이트 전에 신고를 받는다 — 게이트 결과를 보고 나서 적으면
+    // 통과한 실행의 신고와 실패한 실행의 신고가 다른 조건에서 나온 것이 된다
+    'claims-reported',
     'gate-started',
     'gate-result',
     'round-finished',

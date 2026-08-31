@@ -57,6 +57,15 @@ export const CapabilitiesSchema = z.object({
    * 알고 짜는 것과 모르고 짜는 것은 다르다.
    */
   execShell: SupportSchema,
+  /**
+   * 실행 턴이 **게이트가 확인해 주지 않는 주장**을 스스로 신고하는가.
+   *
+   * 소비자에게 이 축이 필요한 이유: 게이트 결과만 그리면 초록만 보이는데, **게이트가 덮지
+   * 않은 자리는 초록에 나타나지 않는다.** 이 축이 `none`인 러너를 붙이면 화면은
+   * "4/4 통과"까지밖에 못 그리고, 신고하는 러너를 붙이면 "4/4 통과 · 다만 게이트 밖 주장 2건"을
+   * 그린다. 완료의 신뢰도를 한 칸 더 말할 수 있는가의 문제다.
+   */
+  claimReporting: SupportSchema,
 })
 export type Capabilities = z.infer<typeof CapabilitiesSchema>
 
@@ -160,6 +169,18 @@ export function manifest(version: string): Manifest {
        * 러너가 설명할 수 없게 된다. 열어 준 범위는 "완료의 정의" 그 자체다.
        */
       execShell: 'partial',
+      /**
+       * `partial`인 이유: **요구할 뿐 강제할 수 없다.**
+       *
+       * 러너는 형식을 요구하고 답을 파싱해 신고 여부를 기록하지만, 에이전트가 신고하지
+       * 않으면 그것을 `reported: false`로 적을 수 있을 뿐이다. 판정으로 삼지 않는 것은
+       * 설계다 — 서식 준수가 완료를 좌우하면 판정이 게이트 밖으로 새고, 신고가 완료를
+       * 좌우한다고 배운 에이전트는 신고를 줄이는 쪽으로 움직여 이 축이 정확히 반대로 작동한다.
+       *
+       * 그리고 **신고의 내용이 참인지는 아무도 검증하지 않는다.** 이 축이 말하는 것은
+       * "확인되지 않은 자리를 스스로 지목하게 한다"이지 "그 지목이 옳다"가 아니다.
+       */
+      claimReporting: 'partial',
     },
     evidenceLayout: {
       runsDir: RUNS_DIR,

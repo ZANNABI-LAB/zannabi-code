@@ -192,6 +192,65 @@ export const RoundSchema = z.object({
 })
 export type Round = z.infer<typeof RoundSchema>
 
+/**
+ * 게이트가 확인해 주지 않는 주장 하나.
+ *
+ * **왜 이것이 필요한가**: 실행 턴에 셸을 열어 주자(Phase 11) 라운드 낭비는 줄었지만
+ * **"확인 못 한 자리"를 스스로 지목하는 일이 사라졌다.** 셸이 닫혀 있을 때는 못 돌리는 것이
+ * 명백해서 지목이 나왔는데, 대부분 돌릴 수 있게 되자 **돌릴 수 없는 나머지가 눈에 안 띈다.**
+ * 그 나머지가 정확히 틀리기 쉬운 자리다 — 실측에서 에이전트는 "어떤 코드도 이 값을 보지
+ * 않는다"고 단언했고, 사람이 grep 한 번으로 반례를 찾았다.
+ *
+ * **게이트에 기대 출력을 붙여도(Phase 12) 못 잡는다.** 그 자리에 게이트가 없기 때문이다 —
+ * 화면(HTML/JS)처럼 게이트가 구조적으로 안 덮는 산출물이 있고, 그건 러너가 아니라 저장소 사정이다.
+ */
+export const ClaimSchema = z.object({
+  /** 주장 자체. 에이전트가 참이라고 말하지만 게이트가 보증하지 않는 것 */
+  claim: z.string().min(1),
+  /** 무엇에 근거하는가 — 읽어서 아는 것과 미뤄 짐작한 것은 신뢰도가 다르다 */
+  basis: z.enum(['read', 'inferred', 'unverified']),
+  /** 왜 게이트로 확인할 수 없었는가. 비워도 되지만 적으면 게이트를 늘릴 단서가 된다 */
+  why: z.string().optional(),
+})
+export type Claim = z.infer<typeof ClaimSchema>
+
+/**
+ * 실행 턴의 신고. **세 상태를 가르는 것이 이 타입의 전부다.**
+ *
+ * 실측에서 "확인하지 못한 것" 절이 비어 있었는데, **그것이 회피인지 정말로 없는 것인지
+ * 구별할 수 없었다.** 산문으로 요구했더니 그냥 안 쓴 것이다. 명시적인 빈 신고와 무신고를
+ * 가르면 그 구분이 생긴다 — "없다고 말했다"는 검증 가능한 진술이고, "말하지 않았다"는 아니다.
+ */
+export type ClaimReport =
+  /** 형식을 지켜 신고했다. 목록이 비어 있으면 "게이트 밖 주장이 없다"고 **말한** 것이다 */
+  | { reported: true; claims: Claim[] }
+  /** 요구한 형식이 답변에 없다. 신고하지 않은 것이며, 없다고 말한 것이 아니다 */
+  | { reported: false }
+
+const claimsBlock = z.object({ claims: z.array(ClaimSchema) })
+
+/**
+ * 실행 턴의 답변에서 신고를 뽑는다.
+ *
+ * {@link extractGates}와 같은 이유로 **마지막 블록부터** 훑는다 — 답변 안에 예시 블록이
+ * 먼저 나오면 앞에서부터 집는 쪽은 엉뚱한 것을 읽는다.
+ *
+ * **게이트 블록과 섞이지 않는다**: 계획 턴은 `{"gates":…}`를, 실행 턴은 `{"claims":…}`를
+ * 낸다. 스키마가 다르므로 서로의 블록은 파싱에 실패해 건너뛰어진다.
+ */
+export function extractClaims(text: string): ClaimReport {
+  const blocks = [...text.matchAll(/```json\s*([\s\S]*?)```/g)]
+  for (let i = blocks.length - 1; i >= 0; i--) {
+    try {
+      const result = claimsBlock.safeParse(JSON.parse(blocks[i][1]))
+      if (result.success) return { reported: true, claims: result.data.claims }
+    } catch {
+      // 이 블록은 신고가 아니다 — 앞쪽 블록을 계속 본다
+    }
+  }
+  return { reported: false }
+}
+
 const gatesBlock = z.object({ gates: z.array(GateSchema) })
 
 /**

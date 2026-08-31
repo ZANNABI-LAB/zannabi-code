@@ -61,6 +61,7 @@ append-only JSONL. **한 파일이 세 가지를 겸한다** — tail하면 실�
 | `approval-resolved` | 승인/거부됨 | `action` `reason?` |
 | `round-started` | 라운드 시작 | `round` |
 | `exec-finished` | 실행 턴 종료(게이트 전) | `round` `ok` `usage?` `sessionId?` `model?` `selfChecks?`(`{cmd, denied?}` — **시도이지 실행이 아니다**) |
+| `claims-reported` | 실행 턴이 게이트 밖 주장을 신고 | `round` `reported` `claims`(`{claim, basis, why?}`) — **`reported: false`는 "없다"가 아니라 "말하지 않았다"** |
 | `gate-started` | 게이트 하나 시작 | `round` `phase`(verify/recheck) `gate` `cmd` |
 | `gate-result` | 게이트 하나 종료 | `round` `phase`(verify/recheck) `evidence` |
 | `recheck-suppressed` | 재확인 판정의 한 축을 껐음 | `round` `cause` `suppressed` |
@@ -101,6 +102,15 @@ append-only JSONL. **한 파일이 세 가지를 겸한다** — tail하면 실�
 - **`cost-updated`가 따로 있는 이유**: 사용량 이벤트를 합치면 나오는 값이지만, 소비자가
   러너의 합산 규칙(캐시 입력을 어느 쪽이 포함하는지 등)을 다시 구현하게 만들면
   그건 계약이 아니라 숙제다.
+
+**`claims-reported`가 `reported: false`를 싣는 이유.** 신고가 없을 때 이벤트를 아예 안 쓰면
+"요구를 무시했다"와 "이 실행에는 그 요구가 없었다"가 저널에서 같아 보인다. 요구했는데 답이
+없었다는 사실 자체가 기록되어야 **빈 목록(=없다고 말했다)** 과 **무응답(=말하지 않았다)** 이
+갈린다. 실측에서 그 둘을 구별할 수 없어 판단이 막혔다 — 에이전트가 "확인 못 한 것"을 하나도
+적지 않았는데, 그것이 정말 없어서인지 안 적어서인지 알 방법이 없었다.
+
+**판정과 다른 층이다.** 여기 무엇이 실리든 완료는 러너의 게이트 결과로만 정해진다.
+소비자는 이 값을 "덜 믿을 근거"로 그려야지 판정으로 그려서는 안 된다.
 
 ### 읽는 쪽이 지켜야 할 것
 
@@ -148,11 +158,12 @@ zannabi manifest   # JSON을 stdout으로
 | `isolation` | 실행끼리 워킹트리를 격리할 수 있는가 |
 | `bestOfN` | 같은 작업을 여러 조합으로 돌려 고르는가 |
 | `execShell` | **실행 턴의 에이전트가 셸 명령을 돌릴 수 있는가** |
+| `claimReporting` | 실행 턴이 **게이트가 확인해 주지 않는 주장**을 스스로 신고하는가 |
 
 값은 `full` · `partial` · `none`. **`full`은 예외가 없다는 뜻이다** — 조건부로 되는 것은
 전부 `partial`이고, 러너는 그 조건을 밝혀야 한다.
 
-zannabi-code가 지금 `partial`로 신고하는 일곱과 그 조건:
+zannabi-code가 지금 `partial`로 신고하는 여덟과 그 조건:
 
 | 축 | 조건 |
 |---|---|
@@ -162,6 +173,7 @@ zannabi-code가 지금 `partial`로 신고하는 일곱과 그 조건:
 | `resume` | **워크트리로 돌던 실행은 재개할 수 없다** — 브랜치 이름이 `zannabi/<runId>`로 결정되는데 워크트리를 치워도 브랜치는 남아, 재개가 같은 이름을 다시 만들려다 실패한다. `--worktree` 없이 재개하면 원본 저장소에서 돌아 그때까지의 작업이 없는 상태로 이어간다 |
 | `isolation` | **git 저장소가 아니거나 커밋이 하나도 없으면 격리할 수 없다** — 워크트리는 갈라져 나올 지점을 요구한다. `revisionBinding`과 같은 조건이다 |
 | `bestOfN` | **격리 위에서만 성립한다** — 조마다 워크트리를 만들므로 `isolation`이 안 되는 곳에서는 race도 안 된다 |
+| `claimReporting` | **요구할 뿐 강제할 수 없다.** 러너는 형식을 요구하고 답을 파싱해 신고 여부를 기록하지만, 신고하지 않으면 `reported: false`로 적을 수 있을 뿐이다. 판정으로 삼지 않는 것은 설계다 — 서식 준수가 완료를 좌우하면 판정이 게이트 밖으로 샌다. 그리고 **신고 내용이 참인지는 아무도 검증하지 않는다** |
 | `execShell` | **여는 것이 게이트 명령뿐이다.** claude는 승인된 게이트의 `cmd`만 접두 패턴으로 받아 돌릴 수 있고(`--no-exec-shell`로 끔), codex는 `--sandbox workspace-write`라 더 넓게 돈다. `full`이 아닌 이유는 능력 부족이 아니라 설계다 — 넓게 열면 러너가 준 권한을 러너가 설명할 수 없다 |
 
 **신고는 자랑이 아니라 계약이다.** 이 러너도 처음에는 비용만 `partial`로 적고 나머지를
@@ -170,6 +182,15 @@ zannabi-code가 지금 `partial`로 신고하는 일곱과 그 조건:
 
 실행별로 비용이 실제로 얼마를 봤는지는 `report.md`와 `cost-updated`의
 `coverage`(`full`/`partial`/`none`/`not-run`)가 말한다.
+
+#### `claimReporting`이 축인 이유 — 초록이 말하지 않는 것
+
+게이트 결과만 그리면 초록만 보인다. 그런데 **게이트가 덮지 않은 자리는 초록에 나타나지 않는다.**
+이 축이 `none`인 러너를 붙이면 화면은 "4/4 통과"까지고, 신고하는 러너를 붙이면
+"4/4 통과 · 다만 게이트 밖 주장 2건"을 그린다 — 완료의 신뢰도를 한 칸 더 말할 수 있는가의 문제다.
+
+읽는 쪽 규칙 하나: **빈 목록과 무응답을 같게 그리지 말 것.** `reported: false`는
+"게이트 밖 주장이 없다"가 아니라 "말하지 않았다"이며, 후자는 전자보다 덜 믿을 근거다.
 
 #### `execShell`이 축인 이유 — 지시를 짜는 쪽이 알아야 하는 전제다
 

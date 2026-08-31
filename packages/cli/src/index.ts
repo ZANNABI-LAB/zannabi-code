@@ -594,11 +594,17 @@ async function main() {
   // 루프가 끝난 뒤 쓴 것(최종 diff)까지 포함한 최신 손실을 싣는다
   const elapsedMs =
     startedAt === undefined ? undefined : Date.now() - new Date(startedAt).getTime()
+  // 저널이 정본이다 — 결과 객체가 아니라 실제로 쓰인 줄에서 읽는다
+  const journalState = replay(readJournal(store.dir))
   const report = buildReport(result, intent, configChange, store.losses, {
     resumeCount,
     ...(elapsedMs !== undefined && elapsedMs >= 0 ? { elapsedMs } : {}),
-    // 저널이 정본이다 — 결과 객체가 아니라 실제로 쓰인 줄에서 읽는다
-    ...(execShell === false ? {} : { selfChecks: replay(readJournal(store.dir)).selfChecks ?? [] }),
+    ...(execShell === false ? {} : { selfChecks: journalState.selfChecks ?? [] }),
+    // 신고는 execShell 과 무관하게 싣는다 — 셸이 닫혀 있어도 게이트 밖 주장은 생기고,
+    // 오히려 셸이 열렸을 때 신고가 사라지는 것이 이 기능을 만든 이유다
+    ...(journalState.claimsReported === undefined
+      ? {}
+      : { claims: journalState.claims ?? [], claimsReported: journalState.claimsReported }),
   })
   store.writeReport(report)
 

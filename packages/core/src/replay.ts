@@ -13,7 +13,7 @@
  */
 import { emptyUsage, type Usage } from './adapter'
 import type { CostCoverage } from './cost'
-import type { Gate, Round, SelfCheck } from './goal'
+import type { Claim, Gate, Round, SelfCheck } from './goal'
 import { CONTRACT_VERSION, type JournalEvent } from './journal'
 
 /** 지금 이 실행이 무엇을 하는 중인가. `run-finished`가 없는 저널에서만 진행 중이다 */
@@ -93,6 +93,20 @@ export interface ReplayState {
    * 세려면 그것을 빼야 한다 — 세는 쪽이 그 사실을 모르면 13건이 0건일 수 있다.
    */
   selfChecks?: SelfCheck[]
+  /**
+   * 실행 턴이 신고한 **게이트 밖 주장**. 마지막으로 신고한 라운드의 것이다.
+   *
+   * **`claimsReported`와 함께 읽어야 한다.** 이 배열이 비어 있는 데는 두 가지 뜻이 있고,
+   * 둘은 전혀 다르다 — 에이전트가 "없다"고 말했거나, 아무 말도 하지 않았거나.
+   * 실측에서 그 둘을 구별할 수 없어 판단이 막혔다.
+   */
+  claims?: Claim[]
+  /**
+   * 실행 턴이 요구한 형식으로 답했는가. `false`면 신고를 **하지 않은** 것이다.
+   *
+   * `undefined`는 또 다른 상태다: 이 실행에는 신고 요구 자체가 없었다(옛 저널).
+   */
+  claimsReported?: boolean
   /**
    * 이 실행이 몇 번 이어받아졌는지. 0이 아니면 한 번에 돈 실행이 아니다 —
    * 실행 시간과 라운드 수를 비교하는 측정에서 그 차이를 뭉개면 안 된다.
@@ -180,6 +194,16 @@ export function replay(events: JournalEvent[]): ReplayState {
         // 물음이지, 라운드별로 나눠 봐야 할 값이 아니다
         if (event.selfChecks) state.selfChecks = [...(state.selfChecks ?? []), ...event.selfChecks]
         state.phase = 'verifying'
+        break
+      /**
+       * 신고는 **누적하지 않고 갈아끼운다.** selfChecks와 반대인 이유: 자기 확인은
+       * "이 실행에서 몇 번 확인했나"가 물음이라 누적이 맞지만, 주장은 **마지막 라운드의
+       * 것이 현재 상태**다. 2라운드에서 고친 것을 1라운드의 주장과 함께 쌓아 보여주면
+       * 이미 해소된 불확실을 남아 있는 것처럼 읽게 된다.
+       */
+      case 'claims-reported':
+        state.claimsReported = event.reported
+        state.claims = event.claims
         break
       case 'gate-started':
         state.runningGate = event.gate

@@ -136,6 +136,25 @@ export function renderStatus(
     )
   }
 
+  /**
+   * **게이트가 확인해 주지 않는 주장.** 자기 확인 줄 바로 아래에 두는 이유는 둘이 같은
+   * 물음의 앞뒤이기 때문이다 — 위는 "무엇을 확인했나", 아래는 "무엇을 확인하지 못했나".
+   *
+   * **세 상태를 다르게 적는다.** 신고가 없는 것과 "없다"고 말한 것은 다르다. 실측에서
+   * 그 둘이 화면에서 같아 보여, 에이전트가 회피한 것인지 정말 없는 것인지 알 수 없었다.
+   */
+  if (state.claimsReported === false)
+    lines.push('게이트 밖 주장: 신고하지 않았습니다 — 요구한 형식의 답이 없습니다 (없다는 뜻이 아닙니다)')
+  else if (state.claimsReported === true) {
+    const claims = state.claims ?? []
+    if (claims.length === 0) lines.push('게이트 밖 주장: 없다고 신고했습니다')
+    else {
+      lines.push(`게이트 밖 주장: ${claims.length}건 — 게이트가 보증하지 않습니다`)
+      for (const c of claims)
+        lines.push(`  · [${c.basis}] ${c.claim}${c.why ? ` (${c.why})` : ''}`)
+    }
+  }
+
   const budget = state.budget === undefined ? '?' : String(state.budget)
   /**
    * **완료된 라운드와 시도한 라운드는 다르다.**
