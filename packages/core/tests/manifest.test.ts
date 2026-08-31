@@ -64,3 +64,27 @@ test('계약 판이 문서에 적힌 판과 같다', () => {
   expect(doc()).toContain('# 러너 계약 v1')
   expect(CONTRACT_VERSION).toBe(1)
 })
+
+test('partial로 신고한 축은 계약 문서가 그 조건을 밝힌다', () => {
+  // **이 테스트가 있는 이유**: `full`은 예외가 없다는 뜻이라고 문서에 써 놓고 두 번 어겼다.
+  // 처음에는 비용만 partial로 적었다가 외부 리뷰에 잡혔고, 그 뒤에도 isolation·bestOfN이
+  // git 저장소를 요구하면서 full로 남아 있었다. 규칙을 사람의 성실함에 맡기면 또 어긴다.
+  //
+  // 조건표는 "partial로 신고하는 …과 그 조건:" 아래에 있다. 그 아래에서만 찾는 이유는
+  // 위쪽 축 설명표가 같은 행 형식이라, 문서 전체를 보면 조건 없이도 통과해 버리기 때문이다
+  const text = doc()
+  const table = text.slice(text.indexOf('`partial`로 신고하는'))
+  const documented = new Set([...table.matchAll(/^\| `([a-zA-Z]+)` \|/gm)].map(m => m[1]))
+  const partials = Object.entries(manifest('0.0.1').capabilities)
+    .filter(([, v]) => v === 'partial')
+    .map(([axis]) => axis)
+  expect(partials.filter(axis => !documented.has(axis))).toEqual([])
+})
+
+test('격리와 best-of-N은 같은 전제를 신고한다', () => {
+  // race는 조마다 워크트리를 만든다. 격리가 조건부인데 race만 무조건이라고 신고하면,
+  // 소비자는 git이 아닌 프로젝트에서 race 버튼을 그렸다가 실행 시점에 깨진다
+  const c = manifest('0.0.1').capabilities
+  expect(c.isolation).toBe('partial')
+  expect(c.bestOfN).toBe('partial')
+})

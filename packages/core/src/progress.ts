@@ -16,6 +16,20 @@ import type { Evidence, Revision, Round } from './goal'
 /** 기본 한계. C2(3라운드 동일)는 잡고 B2(2라운드 동일 후 진전)는 살리는 자리다 */
 export const DEFAULT_STALL_LIMIT = 3
 
+/**
+ * 기본 재시도 예산.
+ *
+ * **3이 아니라 4인 이유가 정체 감지에 있다.** 감지는 `stallLimit` 라운드가 연속으로 같아야
+ * 발동하는데, 예산이 `stallLimit`과 같으면 그 순간이 마지막 라운드라 남길 예산이 없다 —
+ * 즉 기본값 둘(예산 3 · 한계 3)이 서로를 무효화해서, **아무 옵션도 주지 않은 실행에서는
+ * 감지가 언제나 죽어 있었다.** 러너가 그 사실을 매번 경고하면서도 기본값은 그대로였다.
+ *
+ * 한계를 2로 낮추는 대신 예산을 4로 올린 이유: 실측에서 "라운드 결과가 같다 → 중단"은
+ * 성급했다(같은 결과 2라운드 뒤에 진전이 나온 표본이 있다). 그리고 4는 11회 실측이
+ * 권한 운용값이기도 하다. 실측 표본이 전부 attempts 1이므로 실지출 증가는 사실상 없다.
+ */
+export const DEFAULT_BUDGET = 4
+
 export function roundSignature(revision: Revision, evidence: Evidence[]): string {
   return [
     revision.diffHash ?? 'untracked',

@@ -84,7 +84,18 @@ export interface LoopOptions {
    * {@link resume}과 다른 점: 재개는 **중단된 실행을 이어받는** 것이라 라운드 이력과
    * 지출을 승계하지만, 이쪽은 라운드 0에서 시작하는 새 실행이다.
    */
-  sharedPlan?: { text: string; gates: Gate[] }
+  sharedPlan?: {
+    text: string
+    gates: Gate[]
+    /**
+     * 승인 단계에서 버려진 제안 게이트. **호출자가 병합했으므로 루프는 스스로 알 수 없다.**
+     *
+     * 없으면 race에서만 이 경고가 조용히 사라진다 — 일반 실행은 "제안 게이트를 이래서
+     * 버렸다"를 리포트와 승인 화면에 싣는데, 같은 일이 조에서 벌어지면 아무도 모른다.
+     * 버려진 게이트는 대개 이름 충돌이고, 그것은 완료 기준이 흔들렸다는 신호다.
+     */
+    dropped?: DroppedGate[]
+  }
   /** best-of-N의 조로 도는 실행이면 그 race의 이름. 증거에만 남고 루프 동작에는 영향이 없다 */
   raceId?: string
   /**
@@ -502,7 +513,7 @@ async function runLoopWith(
   const merged = resumed
     ? { gates: resumed.gates, dropped: [] as DroppedGate[] }
     : shared
-      ? { gates: shared.gates, dropped: [] as DroppedGate[] }
+      ? { gates: shared.gates, dropped: shared.dropped ?? [] }
       : mergeGates(opts.userGates, suggested, { reject: opts.rejectSuggested })
   const dropped = merged.dropped
   const gates = merged.gates.map(withTimeout)
@@ -515,7 +526,12 @@ async function runLoopWith(
   if (shared) {
     // 승인은 race 단계에서 사람이 한 번 했다. 각 조의 저널에도 그 사실이 남아야
     // 저널만으로 재생하는 쪽이 "승인 없이 돌았다"고 읽지 않는다
-    opts.store.appendJournal({ type: 'approval-requested', gates, warnings: [] })
+    opts.store.appendJournal({
+      type: 'approval-requested',
+      gates,
+      warnings: [],
+      ...(dropped.length > 0 ? { dropped } : {}),
+    })
     opts.store.appendJournal({ type: 'approval-resolved', action: 'approve' })
   } else if (!resumed) {
     // 게이트가 이 환경에서 실행 가능한지만 본다. 통과/불통과 판정은 하지 않는다

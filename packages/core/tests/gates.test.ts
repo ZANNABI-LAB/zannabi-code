@@ -2,7 +2,7 @@ import { test, expect } from 'bun:test'
 import { mkdtempSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { runGate, preflightGates, signalLines } from '../src/gates'
+import { runGate, preflightGates, signalLines, checkableWords } from '../src/gates'
 import { GateSchema } from '../src/goal'
 
 const cwd = process.cwd()
@@ -73,9 +73,18 @@ test('사전점검: 통과/불통과는 판정하지 않는다 (실패하는 게
   expect(await preflightGates([gate('false')], { cwd })).toHaveLength(0)
 })
 
-test('사전점검: 판정 불가한 형태(환경변수 대입·서브셸)는 건너뛴다', async () => {
-  const gates = [gate('FOO=1 nonexistent-xyz'), gate('$(echo nonexistent-xyz)')]
-  expect(await preflightGates(gates, { cwd })).toHaveLength(0)
+test('사전점검: 정말로 판정 불가한 형태(서브셸)만 건너뛴다', async () => {
+  // 무엇이 실행될지 알 수 없는 것만 넘긴다. 모르는 것을 "없다"고 말하면 정상 게이트가
+  // --yes에서 거부되고, 사용자는 경고를 읽는 대신 검사 자체를 끄는 쪽으로 간다
+  expect(await preflightGates([gate('$(echo nonexistent-xyz)')], { cwd })).toHaveLength(0)
+})
+
+test('사전점검: 환경변수 대입 뒤의 명령은 판정한다', async () => {
+  // 한때 이것을 "판정 불가"로 넘겼다. 넘길 이유가 없다 — 대입을 벗기면 명령이 보인다.
+  // 넘기던 시절에는 --yes가 이 형태를 무검사로 통과시켰다
+  const warnings = await preflightGates([gate('FOO=1 nonexistent-xyz')], { cwd })
+  expect(warnings).toHaveLength(1)
+  expect(warnings[0].kind).toBe('blocking')
 })
 
 test('통과 로그에 파묻힌 실패 줄을 추려낸다 — tail을 늘려서는 안 되는 자리다', () => {
@@ -114,4 +123,22 @@ test('실패한 게이트의 증거에 신호가 실린다', async () => {
   const cwd = mkdtempSync(join(tmpdir(), 'zannabi-signal-fail-'))
   const gate = GateSchema.parse({ name: 'ng', cmd: 'echo "SwapTest FAILED"; exit 1' })
   expect((await runGate(gate, { cwd })).signals).toEqual(['SwapTest FAILED'])
+})
+
+test('복합 명령에서 실제로 실행될 명령을 검사한다', () => {
+  // **회귀 방지**: 첫 낱말만 보던 시절 `cd x && y`의 검사 대상이 `cd`였고,
+  // `command -v cd`는 언제나 성공해서 이 형태가 통째로 통과했다.
+  // --yes는 blocking 경고에만 기대므로 그 모드에서 사전점검이 사실상 없었다
+  expect(checkableWords('cd frontend && npm test')).toEqual(['npm'])
+  expect(checkableWords('NODE_ENV=test bun test')).toEqual(['bun'])
+  expect(checkableWords('env FOO=1 ./gradlew check')).toEqual(['./gradlew'])
+  expect(checkableWords('bun test | tee out.log')).toEqual(['bun', 'tee'])
+})
+
+test('판정할 수 없는 형태는 조용히 넘긴다 — 사전점검이 오탐을 내면 안 된다', () => {
+  // 무엇이 실행될지 이 검사로는 알 수 없다. 모르는 것을 "없다"고 말하면
+  // 정상 게이트가 --yes에서 거부되고, 사용자는 경고를 읽는 대신 검사를 끈다
+  expect(checkableWords('$(echo bun) test')).toEqual([])
+  expect(checkableWords('sh -c "a && b"')).toEqual(['sh'])
+  expect(checkableWords('true')).toEqual([])
 })

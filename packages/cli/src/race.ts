@@ -9,7 +9,7 @@ import { mkdirSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import {
   RunStore, runLoop, planPrompt, extractGates, mergeGates, preflightGates,
-  createWorktree, removeWorktree, commitRound, commitCount, branchDiff,
+  createWorktree, removeWorktree, commitRound, commitCount, branchDiff, salvage,
   summarizeRace, runConcurrent,
   type Gate, type GateWarning, type AgentAdapter, type ApprovalDecision,
   type RaceArm, type ArmOutcome, type RaceSummary, type Round,
@@ -26,6 +26,11 @@ export interface RaceOptions {
   verifyRepeat?: number
   stallLimit?: number
   rejectSuggested?: boolean
+  /**
+   * 실행 턴이 게이트 명령을 스스로 돌릴 수 있게 할지. **여기 없으면 `--no-exec-shell`이
+   * race에서만 조용히 무시된다** — 사용자가 명시적으로 끈 것을 도구가 되살리는 셈이다.
+   */
+  execShell?: boolean
   concurrency: number
   /** 계획 턴을 돌릴 런타임. 조들은 실행 턴만 가른다 */
   planAdapter: AgentAdapter
@@ -77,6 +82,12 @@ export async function runRace(opts: RaceOptions): Promise<RaceSummary | undefine
     opts.log(`[${arm.name}] 시작 — ${worktree.branch}`)
     const armStarted = Date.now()
 
+    /**
+     * **정리는 finally에 둔다.** 조 하나가 어디서든 던지면 워크트리가 남고, 그 워크트리는
+     * git이 등록해 둔 것이라 `git worktree prune` 없이는 사라지지 않는다.
+     * 실패한 조도 브랜치는 남겨야 한다 — 남은 것이 곧 사람이 이어받을 것이다.
+     */
+    try {
     const result = await runLoop({
       intent: opts.intent,
       userGates: opts.userGates,
@@ -89,8 +100,9 @@ export async function runRace(opts: RaceOptions): Promise<RaceSummary | undefine
       ...(opts.verifyRepeat === undefined ? {} : { verifyRepeat: opts.verifyRepeat }),
       ...(opts.gateTimeoutMs === undefined ? {} : { gateTimeoutMs: opts.gateTimeoutMs }),
       store,
-      sharedPlan: { text: plan.finalText, gates },
+      sharedPlan: { text: plan.finalText, gates, dropped: merged.dropped },
       raceId,
+      ...(opts.execShell === undefined ? {} : { execShell: opts.execShell }),
       coldWorkspace: true, // 조마다 새 워크트리다
       approve: async () => ({ action: 'approve' }),
       log: message => opts.log(`[${arm.name}] ${message}`),
@@ -101,13 +113,20 @@ export async function runRace(opts: RaceOptions): Promise<RaceSummary | undefine
     })
 
     const elapsedMs = Date.now() - armStarted
+    // 라운드를 완성하지 못하고 끝난 조의 작업물도 건진다 — 지우기 전이 마지막 기회다
+    const salvaged = await salvage(worktree.path, result.status)
+    if (salvaged.committed) opts.log(`[${arm.name}] 중단 시점의 작업물을 브랜치에 건졌습니다`)
     const commits = await commitCount(opts.cwd, worktree)
     const diff = await branchDiff(opts.cwd, worktree)
     if (diff) store.writeDiff(diff)
-    await removeWorktree(opts.cwd, worktree)
     opts.log(`[${arm.name}] ${result.status} · ${result.attempts}R · ${(elapsedMs / 1000).toFixed(1)}s`)
 
     return { arm, runId: store.runId, result, elapsedMs, branch: worktree.branch, commits }
+    } finally {
+      const cleanup = await removeWorktree(opts.cwd, worktree)
+      if (!cleanup.removed)
+        opts.log(`[${arm.name}] 워크트리를 치우지 못했습니다: ${cleanup.leftAt} — git worktree prune 후 지우세요`)
+    }
   })
 
   outcomes.push(...(await runConcurrent(jobs, opts.concurrency)))

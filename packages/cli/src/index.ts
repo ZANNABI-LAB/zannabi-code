@@ -1,7 +1,7 @@
 #!/usr/bin/env bun
 // packages/cli/src/index.ts
 import { parseArgs } from 'node:util'
-import { readFileSync, existsSync } from 'node:fs'
+import { readFileSync, existsSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { createInterface } from 'node:readline/promises'
 import { resolve } from 'node:path'
@@ -9,9 +9,9 @@ import {
   RunStore, runLoop, FakeAdapter, fakeResult, GateSchema, loadConfig,
   configFingerprint, compareConfig,
   PROFILES, PROFILE_NAMES, isProfileName,
-  DEFAULT_STALL_LIMIT, DEFAULT_VERIFY_REPEAT, DEFAULT_GATE_TIMEOUT_MS, CONFIG_FILENAME,
+  DEFAULT_STALL_LIMIT, DEFAULT_VERIFY_REPEAT, DEFAULT_GATE_TIMEOUT_MS, DEFAULT_BUDGET, CONFIG_FILENAME,
   listRuns, resolveRun, readJournal, replay, RUNS_DIR, resumability, toRounds,
-  createWorktree, removeWorktree, commitRound, commitCount, branchDiff, worktreeUsable, WorktreeError,
+  createWorktree, removeWorktree, commitRound, commitCount, branchDiff, worktreeUsable, WorktreeError, salvage,
   parseArm, manifest,
   type Worktree, type Round,
   type ResumeState,
@@ -37,13 +37,28 @@ interface RuntimeChoice {
   model?: string
 }
 
+const FAKE_PLAN = '계획: 한다.\n```json\n{"gates":[{"name":"ok","cmd":"true"}]}\n```'
+
 function pickAdapter({ agent, model }: RuntimeChoice): AgentAdapter {
   if (process.env.ZANNABI_ADAPTER === 'fake') {
     // E2E용: 계획(게이트 true 제안) + 실행 응답
-    return new FakeAdapter([
-      fakeResult('계획: 한다.\n```json\n{"gates":[{"name":"ok","cmd":"true"}]}\n```'),
-      fakeResult('실행했습니다.'),
-    ])
+    return new FakeAdapter([fakeResult(FAKE_PLAN), fakeResult('실행했습니다.')])
+  }
+  /**
+   * E2E용: **실행 턴이 파일을 쓰고 나서 실패한다.**
+   *
+   * 재현할 수 없는 결함은 다시 난다. 이 조합에서 라운드가 한 번도 완성되지 않아
+   * 워크트리 커밋이 일어나지 않았고, 그대로 워크트리를 지워 에이전트가 쓴 것을 잃었다.
+   * 실패 결과를 둘 넣는 이유는 루프가 세션이 있으면 한 번 더 시도하기 때문이다
+   */
+  if (process.env.ZANNABI_ADAPTER === 'fake-exec-error') {
+    const failed = { ok: false as const, events: [], finalText: '', errorReason: '스트림이 끊겼습니다' }
+    return new FakeAdapter(
+      [fakeResult(FAKE_PLAN), failed, failed],
+      (request, index) => {
+        if (index > 0) writeFileSync(join(request.cwd, 'agent-wrote.txt'), '에이전트가 쓴 것\n')
+      },
+    )
   }
   return agent === 'codex' ? new CodexAdapter({ model }) : new ClaudeAdapter({ model })
 }
@@ -87,6 +102,25 @@ async function approveAutomatically(
   plan: string, gates: Gate[], warnings: GateWarning[],
 ): Promise<ApprovalDecision> {
   printPlan(plan, gates, warnings)
+  /**
+   * **완료 기준을 통째로 에이전트가 정한 채로 사람 없이 도는 것을 막는다.**
+   *
+   * 판정이 러너 밖 종료코드라는 이 도구의 주장은, 그 종료코드를 낼 명령을 누가 골랐는지를
+   * 함께 말해야 성립한다. 실증했다: 에이전트가 게이트로 `true`와 `echo built`를 제안하면
+   * 코드를 한 줄도 안 쓰고 `success`가 난다. 사전점검은 두 명령이 실재하므로 통과시킨다.
+   *
+   * 사람이 보는 실행에서는 승인 화면이 이것을 막는다. `--yes`는 그 화면을 끄므로
+   * 여기서 대신 막는다 — **사용자 게이트가 하나라도 있으면 통과시킨다.** 제안 게이트가
+   * 섞이는 것 자체는 값을 냈다(실측에서 계획 에이전트가 산문 제약을 게이트로 바꿔 붙였다).
+   * 막는 것은 **기준 전체가 제안일 때**뿐이다.
+   */
+  if (gates.length > 0 && gates.every(g => g.source !== 'user'))
+    return {
+      action: 'abort',
+      reason:
+        '--yes 모드에서 완료 기준이 전부 에이전트 제안입니다 — 사용자 게이트 없이는 진행하지 않습니다. ' +
+        '`--gate "이름:명령"`으로 하나 이상 지정하거나, 승인 화면을 볼 수 있게 --yes를 빼세요',
+    }
   const blocking = warnings.filter(w => w.kind === 'blocking')
   if (blocking.length > 0)
     return {
@@ -278,7 +312,7 @@ async function main() {
     return value
   }
 
-  const budget = number('budget', values.budget, config.budget ?? profile.budget ?? 3, 1)
+  const budget = number('budget', values.budget, config.budget ?? profile.budget ?? DEFAULT_BUDGET, 1)
   const maxCostUsd = usd(values['max-cost'], config.maxCostUsd)
   const stallLimit = number('stall-limit', values['stall-limit'], config.stallLimit ?? DEFAULT_STALL_LIMIT, 0)
   const verifyRepeat = number(
@@ -289,6 +323,7 @@ async function main() {
   )
   const gateTimeoutMs = number('gate-timeout', values['gate-timeout'], config.gateTimeoutMs ?? DEFAULT_GATE_TIMEOUT_MS, 1)
   const rejectSuggested = values['no-suggest'] ?? config.rejectSuggested ?? false
+  const execShell = values['no-exec-shell'] === true ? false : (config.execShell ?? true)
 
   let userGates: Gate[]
   try {
@@ -340,6 +375,8 @@ async function main() {
       verifyRepeat,
       stallLimit,
       rejectSuggested,
+      // 사용자가 끈 것은 race에서도 꺼져 있어야 한다 — 한때 여기 없어서 조용히 되살아났다
+      execShell,
       concurrency,
       planAdapter: pickAdapter(plan),
       planLabel: label(plan),
@@ -366,7 +403,6 @@ async function main() {
    * 여는 것은 러너가 어차피 돌릴 명령뿐이라 새 위험이 생기지 않고,
    * 끄면 에이전트가 자기가 쓴 것이 도는지 모르고 쓰는 상태로 돌아간다.
    */
-  const execShell = values['no-exec-shell'] === true ? false : (config.execShell ?? true)
   if (useWorktree) {
     const usable = await worktreeUsable(cwd)
     if (!usable.ok) {
@@ -424,13 +460,33 @@ async function main() {
     resumeCount = (state.resumeCount ?? 0) + 1
     startedAt = state.startedAt
     store = RunStore.open(cwd, found.runId)
+    /**
+     * **세션은 런타임이 같을 때만 이어받는다.**
+     *
+     * 세션 id는 그것을 만든 런타임의 것이다. claude로 돌던 실행을 설정이 바뀐 뒤 재개하면
+     * claude의 세션 id가 `codex exec resume`으로 들어가고, 그러면 이어가는 것이 아니라
+     * 남의 대화를 가리키며 깨진다. **저널은 원래 런타임을 이미 알고 있었다**(`state.runtime`) —
+     * 알면서 쓰지 않은 자리였다.
+     *
+     * 실행 자체는 막지 않는다. 계획과 게이트는 사람이 승인한 그대로 유효하고, 잃는 것은
+     * 앞 턴의 대화 맥락뿐이다 — 실패 증거는 어차피 프롬프트로 다시 들어간다.
+     */
+    const wasExec = state.runtime?.exec
+    const nowExec = label(exec)
+    const sameRuntime =
+      wasExec === undefined || wasExec.split(':')[0] === nowExec.split(':')[0]
+    if (!sameRuntime)
+      console.log(
+        `[zannabi] 실행 런타임이 ${wasExec} → ${nowExec}로 바뀌었습니다 — ` +
+          '세션을 이어받지 않고 새로 시작합니다 (계획과 게이트는 승인된 그대로입니다)',
+      )
     resume = {
       planText: readFileSync(planPath, 'utf-8'),
       gates: state.gates,
       rounds: toRounds(state.rounds),
       startRound: can.nextRound,
       usage: state.usage,
-      ...(state.sessionId === undefined ? {} : { sessionId: state.sessionId }),
+      ...(state.sessionId === undefined || !sameRuntime ? {} : { sessionId: state.sessionId }),
     }
     console.log(
       `[zannabi] 재개: ${found.runId} · 완료된 라운드 ${state.rounds.length}개 · ` +
@@ -515,6 +571,22 @@ async function main() {
 
   // 설정 변조는 에이전트가 **작업한 자리**에서 본다 — 워크트리면 거기가 그 자리다
   const configChange = compareConfig(configBefore, workDir)
+  /**
+   * **diff를 뜨기 전에 건진다.** 라운드 커밋은 라운드가 완성돼야 도는데, 실행 턴이 실패하면
+   * (`agent-error`) 루프가 라운드를 만들지 않고 끝나므로 커밋이 한 번도 일어나지 않는다.
+   * 그 상태로 넘어가면 브랜치 diff가 비고, 워크트리는 곧 삭제되어 에이전트가 쓴 파일이
+   * 통째로 사라진다 — 화면에는 "바뀐 파일이 없었습니다"가 뜬다.
+   *
+   * 정상 경로에서는 이미 전부 커밋돼 있어 아무 일도 하지 않는다.
+   */
+  if (worktree) {
+    const salvaged = await salvage(worktree.path, result.status)
+    if (salvaged.committed)
+      console.log(
+        `[zannabi] 라운드를 완성하지 못했지만 작업물이 남아 있어 브랜치에 건졌습니다 ` +
+          `(${salvaged.sha?.slice(0, 8)}) — 잃지 않았습니다`,
+      )
+  }
   // 워크트리는 라운드마다 커밋하므로 끝난 시점의 워킹트리는 깨끗하다.
   // 그때 워킹트리 diff를 쓰면 증거가 "아무것도 안 바꿨다"고 거짓말을 한다
   const diff = worktree ? await branchDiff(cwd, worktree) : await captureDiff(cwd)
@@ -535,7 +607,8 @@ async function main() {
 
   if (worktree) {
     // 브랜치는 남기고 워크트리만 치운다 — 브랜치가 곧 사용자에게 돌려주는 결과다.
-    // 실패로 끝난 실행의 브랜치도 지우지 않는다: 3라운드를 태운 시도에도 이어받을 것이 있다
+    // 실패로 끝난 실행의 브랜치도 지우지 않는다: 3라운드를 태운 시도에도 이어받을 것이 있다.
+    //
     const commits = await commitCount(cwd, worktree)
     const cleanup = await removeWorktree(cwd, worktree)
     if (commits > 0) {

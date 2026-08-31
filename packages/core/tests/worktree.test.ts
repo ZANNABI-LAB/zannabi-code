@@ -1,3 +1,9 @@
+/**
+ * 워크트리 시험은 **실제 git을 돌린다.** 기본 5초 타임아웃으로는 전체 시험을 병렬로 돌릴 때
+ * 간헐적으로 넘긴다 — 실측에서 `git worktree add`가 부하에 밀려 5,000ms 정각에 잘렸다.
+ * 기능 결함이 아니라 시험 환경의 부하이므로 여유를 준다. **결과를 느슨하게 하지는 않는다** —
+ * 넉넉해진 것은 시간뿐이고 단언은 그대로다.
+ */
 import { test, expect } from 'bun:test'
 import { mkdtempSync, writeFileSync, existsSync, readFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
@@ -52,7 +58,7 @@ test('워크트리는 원본의 미커밋 작업을 딸고 가지 않고, 그 �
   await removeWorktree(cwd, wt)
   // 원본 워킹트리는 무손상이다 — 러너가 사람의 작업을 건드리지 않는다는 것이 이 기능의 전부다
   expect(readFileSync(join(cwd, 'mywork.txt'), 'utf-8')).toBe('사람이 편집 중\n')
-})
+}, 30_000)
 
 test('라운드마다 커밋되고, 브랜치는 워크트리를 치운 뒤에도 남는다', async () => {
   const cwd = repo()
@@ -78,7 +84,7 @@ test('라운드마다 커밋되고, 브랜치는 워크트리를 치운 뒤에�
   expect(existsSync(wt.path)).toBe(false)
   // 브랜치는 결과물이므로 남는다. 실패한 실행의 것도 지우지 않는다
   expect(await git(['rev-parse', '--verify', wt.branch], cwd)).not.toBe('')
-})
+}, 30_000)
 
 test('실행이 워크트리 안에서만 파일을 바꾼다', async () => {
   const cwd = repo()
@@ -115,7 +121,7 @@ test('실행이 워크트리 안에서만 파일을 바꾼다', async () => {
   expect(await commitCount(cwd, wt)).toBe(1)
 
   await removeWorktree(cwd, wt)
-})
+}, 30_000)
 
 test('같은 저장소에서 두 실행이 동시에 돌아도 증거가 섞이지 않는다', async () => {
   // 격리가 존재하는 이유 그 자체
@@ -162,7 +168,7 @@ test('같은 저장소에서 두 실행이 동시에 돌아도 증거가 섞이�
   expect(diffA).not.toContain('beta.txt')
 
   await Promise.all([removeWorktree(cwd, wtA), removeWorktree(cwd, wtB)])
-})
+}, 30_000)
 
 test('커밋이 없는 저장소에는 워크트리를 만들지 않고 이유를 말한다', async () => {
   const dir = mkdtempSync(join(tmpdir(), 'zannabi-wt-empty-'))
@@ -174,11 +180,11 @@ test('커밋이 없는 저장소에는 워크트리를 만들지 않고 이유�
 
   // 게이트를 다 돌고 나서 "사실 격리가 안 됐습니다"를 알리는 것이 최악이다
   expect(createWorktree(dir, 'run-x')).rejects.toThrow(WorktreeError)
-})
+}, 30_000)
 
 test('git 저장소가 아니면 거부한다', async () => {
   const dir = mkdtempSync(join(tmpdir(), 'zannabi-wt-nogit-'))
   const usable = await worktreeUsable(dir)
   expect(usable.ok).toBe(false)
   if (!usable.ok) expect(usable.reason).toContain('git 저장소가 아닙니다')
-})
+}, 30_000)

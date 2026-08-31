@@ -71,7 +71,7 @@ test('kill -9로 죽인 실행을 이어서 돌면 성공으로 끝난다', asyn
 
 test('끝난 실행은 이어서 돌 수 없고, 그 이유를 말한다', async () => {
   const cwd = mkdtempSync(join(tmpdir(), 'zannabi-resume-done-'))
-  await output(spawnRun(cwd, ['run', '이미 끝남', '--yes']))
+  await output(spawnRun(cwd, ['run', '이미 끝남', '--yes', '--gate', 'user:true']))
   const runId = listRuns(cwd)[0]
 
   const again = await output(spawnRun(cwd, ['resume', runId]))
@@ -135,4 +135,21 @@ test('이월된 지출은 재개 후에도 상한이 같은 총액을 본다', a
   expect(after.usage.plan.turns).toBeGreaterThanOrEqual(before.usage.plan.turns)
   const journal = readFileSync(join(found.dir, JOURNAL_FILENAME), 'utf-8')
   expect(journal.split('\n').filter(Boolean).length).toBeGreaterThan(8)
+}, 60_000)
+
+test('실행 런타임이 바뀐 재개는 세션을 이어받지 않고 그 사실을 말한다', async () => {
+  // **회귀 방지**: 세션 id는 그것을 만든 런타임의 것인데, 재개는 저장된 id를 그대로
+  // 넘기면서 어댑터는 현재 설정으로 다시 골랐다. claude 세션이 `codex exec resume`에
+  // 들어가면 이어가는 것이 아니라 남의 대화를 가리킨다.
+  // 저널은 원래 런타임을 이미 알고 있었다(exec-finished.model) — 알면서 안 쓴 자리였다
+  const cwd = mkdtempSync(join(tmpdir(), 'zannabi-runtime-switch-'))
+  const proc = spawnRun(cwd, ['run', '런타임 교차', '--yes', '--gate', 'slow:sleep 5'])
+  await sleep(2500)
+  proc.kill(9)
+  await proc.exited
+
+  // 실행 런타임만 바꿔 재개한다 — 계획과 게이트는 승인된 그대로여야 한다
+  const again = await output(spawnRun(cwd, ['resume', '--exec-agent', 'codex']))
+  expect(again.out).toContain('세션을 이어받지 않고 새로 시작합니다')
+  expect(again.out).toContain('계획과 게이트는 승인된 그대로')
 }, 60_000)

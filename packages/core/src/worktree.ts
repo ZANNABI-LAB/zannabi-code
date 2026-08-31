@@ -104,7 +104,9 @@ export async function commitRound(
   const staged = await git(['diff', '--cached', '--name-only'], worktreePath)
   if (staged.out.trim() === '') return { committed: false }
 
-  const message = `zannabi: round ${round}\n\n${summary}`
+  // 라운드 0은 라운드가 아니라 **건짐**이다 — 실행이 라운드를 완성하지 못하고 끝난 자리다
+  const message =
+    round === 0 ? `zannabi: salvage\n\n${summary}` : `zannabi: round ${round}\n\n${summary}`
   const commit = await git(
     [
       '-c', 'user.name=zannabi',
@@ -134,6 +136,24 @@ export async function branchDiff(cwd: string, worktree: Worktree): Promise<strin
 export async function commitCount(cwd: string, worktree: Worktree): Promise<number> {
   const log = await git(['rev-list', '--count', `${worktree.base}..${worktree.branch}`], cwd)
   return log.code === 0 ? Number(log.out.trim()) || 0 : 0
+}
+
+/**
+ * 워크트리를 지우기 전에 **남아 있는 것을 브랜치에 건진다.**
+ *
+ * 라운드 커밋(`commitRound`)은 라운드가 완성됐을 때만 불린다. 그런데 실행 턴이 실패하면
+ * (`agent-error`) 루프는 라운드를 만들지 않고 즉시 끝나므로 **커밋이 한 번도 일어나지 않는다.**
+ * 그 상태로 워크트리를 치우면 에이전트가 쓴 파일이 통째로 사라지고, 화면에는
+ * "브랜치에 커밋이 없습니다 — 바뀐 파일이 없었습니다"가 뜬다. **그것은 거짓말이다.**
+ *
+ * 이 파일 첫머리에 "실패로 끝난 실행의 작업물도 사라지면 안 된다"고 적어 놓고
+ * 정확히 그 자리에서 잃고 있었다. 정상 경로에서는 이미 전부 커밋돼 있어 아무 일도 하지 않는다.
+ */
+export async function salvage(
+  worktreePath: string,
+  reason: string,
+): Promise<{ committed: boolean; sha?: string }> {
+  return commitRound(worktreePath, 0, `중단 시점의 작업물 (${reason})`)
 }
 
 /**

@@ -88,12 +88,88 @@ export interface GateWarning {
   kind: 'blocking' | 'advisory'
 }
 
-/** `cd x && y` 같은 복합 명령에서 판정 가능한 첫 낱말만 뽑는다. 판정 불가면 null */
-function leadingWord(cmd: string): string | null {
-  const first = cmd.trim().split(/\s+/)[0] ?? ''
-  // 환경변수 대입 접두사(FOO=1 cmd)나 따옴표·서브셸은 이 검사로 판정하지 않는다
-  if (!first || first.startsWith('-') || /[='"`($]/.test(first)) return null
+/**
+ * 셸 빌트인과 늘 존재하는 도구들. `command -v`가 언제나 성공하므로 검사해도 아무것도 못 밝힌다.
+ *
+ * **이 목록이 없으면 검사가 통째로 무력해진다**: `cd frontend && npm test`의 첫 낱말은 `cd`이고
+ * `command -v cd`는 언제나 성공한다. 그래서 실측에서 이 형태가 전부 통과했다 —
+ * 사전점검이 도는 것처럼 보이면서 실제로는 아무것도 안 보고 있었다.
+ */
+const ALWAYS_PRESENT = new Set(['cd', 'true', 'false', ':', 'echo', 'test', 'set', 'export', 'exit'])
+
+/** 이 낱말들 뒤에 오는 것이 실제로 검사할 명령이다 (`env FOO=1 bun test`, `nohup ./gradlew`) */
+const PASSTHROUGH = new Set(['env', 'nohup', 'time', 'exec', 'command'])
+
+/**
+ * 복합 명령을 셸 연산자로 가른다. 따옴표 안의 연산자는 가르지 않는다 —
+ * `sh -c "a && b"` 한 덩어리를 둘로 쪼개면 있지도 않은 명령을 검사하게 된다.
+ */
+function segments(cmd: string): string[] {
+  const parts: string[] = []
+  let buf = ''
+  let quote: string | undefined
+  for (let i = 0; i < cmd.length; i++) {
+    const c = cmd[i]
+    if (quote) {
+      if (c === quote) quote = undefined
+      buf += c
+      continue
+    }
+    if (c === '"' || c === "'" || c === '`') {
+      quote = c
+      buf += c
+      continue
+    }
+    const two = cmd.slice(i, i + 2)
+    if (two === '&&' || two === '||') {
+      parts.push(buf)
+      buf = ''
+      i++
+      continue
+    }
+    if (c === ';' || c === '|' || c === '&') {
+      parts.push(buf)
+      buf = ''
+      continue
+    }
+    buf += c
+  }
+  parts.push(buf)
+  return parts.map(p => p.trim()).filter(Boolean)
+}
+
+/** 한 조각에서 검사할 낱말. 판정 불가면 null */
+function segmentWord(segment: string): string | null {
+  let words = segment.trim().split(/\s+/)
+  // 환경변수 대입 접두사(FOO=1 cmd)와 감싸는 명령(env·nohup…)을 벗겨 낸다.
+  // 한 번씩만 벗기면 `env FOO=1 ./gradlew`처럼 섞인 형태에서 대입이 남아 판정 불가가 된다
+  for (;;) {
+    const head = words[0]
+    if (head === undefined) break
+    if (/^[A-Za-z_][A-Za-z0-9_]*=/.test(head) || PASSTHROUGH.has(head)) {
+      words = words.slice(1)
+      continue
+    }
+    break
+  }
+  const first = words[0] ?? ''
+  // 따옴표·서브셸·변수 전개가 섞이면 무엇이 실행될지 이 검사로는 알 수 없다
+  if (!first || first.startsWith('-') || /[='"`($)]/.test(first)) return null
   return first
+}
+
+/**
+ * 명령에서 존재 여부를 검사할 낱말들을 뽑는다.
+ *
+ * **첫 낱말 하나만 보면 안 되는 이유**: `cd frontend && npm test`에서 검사해야 할 것은
+ * `npm`이지 `cd`가 아니다. 첫 조각만 보던 시절 이 형태가 통째로 통과했고,
+ * `--yes`는 blocking 경고에만 기대므로 그 모드에서 검사가 사실상 없었다.
+ */
+export function checkableWords(cmd: string): string[] {
+  const words = segments(cmd)
+    .map(segmentWord)
+    .filter((w): w is string => w !== null && !ALWAYS_PRESENT.has(w))
+  return [...new Set(words)]
 }
 
 /**
@@ -104,24 +180,25 @@ function leadingWord(cmd: string): string | null {
 export async function preflightGates(gates: Gate[], opts: { cwd: string }): Promise<GateWarning[]> {
   const warnings: GateWarning[] = []
   for (const gate of gates) {
-    const word = leadingWord(gate.cmd)
-    if (!word) continue
-    try {
-      // 낱말은 스크립트에 보간하지 않고 인자로 넘긴다 — 셸 주입 여지를 없앤다
-      const proc = Bun.spawn(['sh', '-c', 'command -v "$1" >/dev/null 2>&1', 'sh', word], {
-        cwd: opts.cwd,
-        stdout: 'ignore',
-        stderr: 'ignore',
-      })
-      if ((await proc.exited) !== 0)
-        warnings.push({
-          gate: gate.name,
-          cmd: gate.cmd,
-          reason: `명령을 찾을 수 없습니다: ${word}`,
-          kind: 'blocking',
+    // 복합 명령은 조각마다 본다 — `cd x && y`에서 정작 중요한 것은 뒤쪽이다
+    for (const word of checkableWords(gate.cmd)) {
+      try {
+        // 낱말은 스크립트에 보간하지 않고 인자로 넘긴다 — 셸 주입 여지를 없앤다
+        const proc = Bun.spawn(['sh', '-c', 'command -v "$1" >/dev/null 2>&1', 'sh', word], {
+          cwd: opts.cwd,
+          stdout: 'ignore',
+          stderr: 'ignore',
         })
-    } catch {
-      // 점검 자체가 실패하면 경고하지 않는다 — 사전점검이 새 실패 경로가 되면 안 된다
+        if ((await proc.exited) !== 0)
+          warnings.push({
+            gate: gate.name,
+            cmd: gate.cmd,
+            reason: `명령을 찾을 수 없습니다: ${word}`,
+            kind: 'blocking',
+          })
+      } catch {
+        // 점검 자체가 실패하면 경고하지 않는다 — 사전점검이 새 실패 경로가 되면 안 된다
+      }
     }
   }
   return warnings
@@ -144,6 +221,19 @@ export async function runGate(gate: Gate, opts: RunGateOptions): Promise<Evidenc
     const outDone = collect(proc.stdout, stdoutSink)
     const errDone = collect(proc.stderr, stderrSink)
     let killTimer: ReturnType<typeof setTimeout> | undefined
+    /**
+     * 타임아웃.
+     *
+     * **알려진 한계: 프로세스 트리를 죽이지 못한다.** 죽이는 것은 우리가 띄운 `sh`뿐이라,
+     * 게이트가 백그라운드로 띄운 손자(`cmd &`, 데몬을 세우는 시험 등)는 살아남는다.
+     * 판정은 정확하다 — 타임아웃은 `error`로 정직하게 기록되고 통과로 세지 않는다.
+     * 남는 것은 자원 누수이고, 그 프로세스가 포트나 파일을 쥐고 있으면 다음 라운드의
+     * 게이트가 그 때문에 실패할 수 있다.
+     *
+     * 고치지 않은 이유: 그룹째 죽이려면 새 세션으로 띄워야 하는데(`setsid`), 실측에서
+     * 그룹 id를 잘못 잡으면 **러너 자신이 속한 그룹을 죽인다.** 검증 도구가 자기를 죽이는
+     * 위험을 감수할 자리가 아니다. 이식성(setsid는 리눅스 것이다) 문제도 함께 있다.
+     */
     const timer = setTimeout(() => {
       timedOut = true
       proc.kill()

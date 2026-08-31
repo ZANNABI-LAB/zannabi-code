@@ -10,7 +10,7 @@ const CLI = join(import.meta.dir, '..', 'src', 'index.ts')
 /** fake 어댑터로 실행 하나를 만든다 — 실제 저널을 쓰는 경로를 그대로 탄다 */
 async function runOnce(): Promise<string> {
   const cwd = mkdtempSync(join(tmpdir(), 'zannabi-status-'))
-  const proc = Bun.spawn(['bun', 'run', CLI, 'run', '상태 시험', '--cwd', cwd, '--yes'], {
+  const proc = Bun.spawn(['bun', 'run', CLI, 'run', '상태 시험', '--cwd', cwd, '--gate', 'user:true', '--yes'], {
     env: { ...process.env, ZANNABI_ADAPTER: 'fake' },
     stdout: 'ignore',
     stderr: 'ignore',
@@ -33,7 +33,7 @@ test('status는 저널만 읽어 끝난 실행을 재구성한다', async () => 
   expect(code).toBe(0)
   expect(out).toContain(runId)
   expect(out).toContain('종료 (success)')
-  expect(out).toContain('게이트 1/1 통과')
+  expect(out).toContain('게이트 2/2 통과')
 }, 20_000)
 
 test('status는 report.md나 evidence.json 없이도 답한다', async () => {
@@ -55,7 +55,7 @@ test('인자 없는 status는 실행 목록을 한 줄씩 준다', async () => {
   const { code, out } = await cli(['status', '--cwd', cwd])
   expect(code).toBe(0)
   expect(out).toContain('✅')
-  expect(out).toContain('1/3R')
+  expect(out).toContain('1/4R')
 }, 20_000)
 
 test('없는 실행을 물으면 후보를 함께 보여준다', async () => {

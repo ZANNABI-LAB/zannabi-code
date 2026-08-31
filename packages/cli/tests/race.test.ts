@@ -232,3 +232,82 @@ test('승인하지 않으면 조를 돌리지 않는다', async () => {
   expect(summary).toBeUndefined()
   expect(listRuns(cwd)).toHaveLength(0)
 }, 30_000)
+
+test('사용자가 끈 자기 확인은 race에서도 꺼져 있다', async () => {
+  // **회귀 방지**: RaceOptions에 execShell 자리가 없어 `--no-exec-shell`이 race에서만
+  // 조용히 무시됐다. 사용자가 명시적으로 끈 안전장치를 도구가 되살리는 것은,
+  // 옵션이 있다는 사실 자체를 못 믿게 만든다
+  const cwd = repo()
+  const seen: (string[] | undefined)[] = []
+  await runRace({
+    intent: '자기 확인 끄기',
+    cwd,
+    arms: [{ name: 'a', agent: 'claude' }],
+    userGates: [{ name: 'user', cmd: 'true', timeoutMs: 60_000, source: 'user' }],
+    budget: 1,
+    concurrency: 1,
+    execShell: false,
+    planAdapter: { name: 'plan', async run() { return fakeResult(PLAN) } },
+    planLabel: 'claude:default',
+    adapterFor: () =>
+      new FakeAdapter([fakeResult('했음')], request => seen.push(request.allowedCommands)),
+    approve: async () => ({ action: 'approve' }),
+    log: () => {},
+  })
+
+  // 실행 턴에 열어 준 명령이 없어야 한다
+  expect(seen).toHaveLength(1)
+  expect(seen[0]).toBeUndefined()
+}, 30_000)
+
+test('조가 던져도 워크트리는 치워진다', async () => {
+  // **회귀 방지**: 정리가 finally에 없어서, 조 하나가 던지면 임시 워크트리와 등록이
+  // 그대로 남았다. git이 등록한 워크트리는 prune 없이 사라지지 않는다
+  const cwd = repo()
+  await runRace({
+    intent: '던지는 조',
+    cwd,
+    arms: [{ name: 'boom', agent: 'claude' }],
+    userGates: [{ name: 'user', cmd: 'true', timeoutMs: 60_000, source: 'user' }],
+    budget: 1,
+    concurrency: 1,
+    planAdapter: { name: 'plan', async run() { return fakeResult(PLAN) } },
+    planLabel: 'claude:default',
+    adapterFor: () => ({ name: 'boom', async run(): Promise<never> { throw new Error('터졌다') } }),
+    approve: async () => ({ action: 'approve' }),
+    log: () => {},
+  }).catch(() => undefined) // 던지는 것 자체는 이 시험의 대상이 아니다
+
+  // git이 아는 워크트리가 남아 있으면 안 된다 — 원본 하나만 있어야 한다
+  const listed = git(['worktree', 'list'], cwd).split('\n').filter(Boolean)
+  expect(listed).toHaveLength(1)
+}, 30_000)
+
+test('버려진 제안 게이트가 race에서도 보고된다', async () => {
+  // **회귀 방지**: race는 게이트를 자기가 병합하고 sharedPlan으로 넘기는데, dropped를
+  // 함께 넘기지 않아 조의 저널에서 이 사실이 통째로 사라졌다. 버려진 게이트는 대개
+  // 이름 충돌이고, 그것은 완료 기준이 흔들렸다는 신호다
+  const cwd = repo()
+  await runRace({
+    intent: '이름 충돌',
+    cwd,
+    // 같은 이름에 **다른 명령**을 계획이 제안한다 → 제안 쪽이 버려진다.
+    // 명령까지 같으면 중복일 뿐 손실이 아니라 보고 대상이 아니다
+    arms: [{ name: 'a', agent: 'claude' }],
+    userGates: [{ name: 'suggested', cmd: 'echo user', timeoutMs: 60_000, source: 'user' }],
+    budget: 1,
+    concurrency: 1,
+    planAdapter: { name: 'plan', async run() { return fakeResult(PLAN) } },
+    planLabel: 'claude:default',
+    adapterFor: () => new FakeAdapter([fakeResult('했음')]),
+    approve: async () => ({ action: 'approve' }),
+    log: () => {},
+  })
+
+  const runId = listRuns(cwd)[0]
+  const events = readJournal(join(cwd, '.zannabi', 'runs', runId))
+  const requested = events.find(e => e.type === 'approval-requested')
+  expect(requested).toBeDefined()
+  if (requested && requested.type === 'approval-requested')
+    expect(requested.dropped?.length ?? 0).toBeGreaterThan(0)
+}, 30_000)

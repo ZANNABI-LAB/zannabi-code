@@ -13,6 +13,8 @@
  * 값을 지정하는 방식이 아니라 건드리지 않는 방식으로 지킨다.
  */
 
+import { DEFAULT_BUDGET } from './progress'
+
 /** 실행 턴을 낮출 때 쓰는 저가 모델. 날짜 접미사 없는 별칭이 권장 표기다 */
 const CHEAP_CLAUDE_MODEL = 'claude-haiku-4-5'
 
@@ -39,9 +41,9 @@ export const PROFILES = {
   },
   /** 실측에서 가장 안정적이었던 조합 — codex 실행은 2/2 성공에 attempts 1이었다 */
   balanced: {
-    summary: '실행을 codex로 · 예산 3',
+    summary: '실행을 codex로 · 예산 4',
     execAgent: 'codex',
-    budget: 3,
+    budget: DEFAULT_BUDGET,
   },
   /**
    * 아무것도 낮추지 않고, 대신 통과를 재확인한다.
@@ -49,8 +51,8 @@ export const PROFILES = {
    * 이 프로젝트에서 안전은 모델 등급이 아니라 검증 강도의 문제다.
    */
   safe: {
-    summary: '기본 런타임 유지 · 예산 3 · 통과 2회 재확인',
-    budget: 3,
+    summary: '기본 런타임 유지 · 예산 4 · 통과 2회 재확인',
+    budget: DEFAULT_BUDGET,
     verifyRepeat: 2,
   },
 } as const satisfies Record<string, Profile>

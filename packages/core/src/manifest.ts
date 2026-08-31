@@ -138,8 +138,18 @@ export function manifest(version: string): Manifest {
        * 격리 없이 돌린 실행의 재개는 온전하다.
        */
       resume: 'partial',
-      isolation: 'full',
-      bestOfN: 'full',
+      /**
+       * `partial`인 이유: **git 저장소가 아니거나 커밋이 하나도 없으면 격리할 수 없다.**
+       * 워크트리는 갈라져 나올 지점을 요구하므로 `worktreeUsable`이 두 경우를 모두 거부한다.
+       * `revisionBinding`이 정확히 같은 이유로 `partial`인데 이쪽만 `full`이었다 —
+       * 같은 조건에 다른 값을 적으면 신고가 조건이 아니라 기분을 말하는 것이 된다.
+       */
+      isolation: 'partial',
+      /**
+       * `partial`인 이유: **격리 위에서만 성립한다.** 조마다 워크트리를 만들므로
+       * `isolation`이 안 되는 곳에서는 race도 안 된다. 신고는 자기 전제까지 물려받아야 한다.
+       */
+      bestOfN: 'partial',
       /**
        * `partial`인 이유: **여는 것이 게이트 명령뿐이다.**
        * claude는 승인된 게이트의 `cmd`를 `--allowedTools`의 접두 패턴으로 받아 그것만 돌릴 수
@@ -163,7 +173,13 @@ export function manifest(version: string): Manifest {
     },
     launch: {
       command: 'zannabi',
-      run: ['run', '{intent}', '--cwd', '{cwd}', '--yes'],
+      /**
+       * `--yes`가 들어 있으므로 **승인 화면이 없다.** 그 대신 러너는 사용자 게이트를
+       * 하나 이상 요구한다 — 완료 기준이 전부 에이전트 제안인 채로 사람 없이 도는 것이
+       * 이 도구가 막아야 할 바로 그 상태이기 때문이다.
+       * `{gate}`는 `이름:명령` 한 쌍이고, 여러 개면 `--gate`와 함께 되풀이한다.
+       */
+      run: ['run', '{intent}', '--cwd', '{cwd}', '--gate', '{gate}', '--yes'],
       resume: ['resume', '{runId}', '--cwd', '{cwd}'],
       status: ['status', '{runId}', '--cwd', '{cwd}'],
     },
