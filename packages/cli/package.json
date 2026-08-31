@@ -16,6 +16,7 @@
   "dependencies": {
     "@zannabi-lab/core": "workspace:*",
     "@zannabi-lab/adapter-claude": "workspace:*",
-    "@zannabi-lab/adapter-codex": "workspace:*"
+    "@zannabi-lab/adapter-codex": "workspace:*",
+    "@zannabi-lab/gateway-telegram": "workspace:*"
   }
 }

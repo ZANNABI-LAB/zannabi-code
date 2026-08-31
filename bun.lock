@@ -33,6 +33,7 @@
         "@zannabi-lab/adapter-claude": "workspace:*",
         "@zannabi-lab/adapter-codex": "workspace:*",
         "@zannabi-lab/core": "workspace:*",
+        "@zannabi-lab/gateway-telegram": "workspace:*",
       },
     },
     "packages/core": {
@@ -40,6 +41,13 @@
       "version": "0.0.1",
       "dependencies": {
         "zod": "^3.23.0",
+      },
+    },
+    "packages/gateway-telegram": {
+      "name": "@zannabi-lab/gateway-telegram",
+      "version": "0.0.1",
+      "dependencies": {
+        "@zannabi-lab/core": "workspace:*",
       },
     },
   },
@@ -93,6 +101,8 @@
     "@zannabi-lab/cli": ["@zannabi-lab/cli@workspace:packages/cli"],
 
     "@zannabi-lab/core": ["@zannabi-lab/core@workspace:packages/core"],
+
+    "@zannabi-lab/gateway-telegram": ["@zannabi-lab/gateway-telegram@workspace:packages/gateway-telegram"],
 
     "bun-types": ["bun-types@1.3.14", "", { "dependencies": { "@types/node": "*" } }, "sha512-4N0ig0fEomHt5R0KCFWjovxow98rIoRwKolrYdCcknNwMekCXRnWEUvgu5soYV8QXtVsrUD8B95MBOZGPvr6KQ=="],
 

@@ -21,6 +21,7 @@ import { renderStatus, renderRunLine } from './status'
 import { runRace, renderRace, RACES_DIR } from './race'
 import { ClaudeAdapter } from '@zannabi-lab/adapter-claude'
 import { CodexAdapter } from '@zannabi-lab/adapter-codex'
+import { approveViaTelegram } from '@zannabi-lab/gateway-telegram'
 
 const AGENTS = ['claude', 'codex'] as const
 type AgentName = (typeof AGENTS)[number]
@@ -240,6 +241,8 @@ async function main() {
       concurrency: { type: 'string' },
       profile: { type: 'string' },
       yes: { type: 'boolean', default: false },
+      approve: { type: 'string' },
+      'approve-timeout': { type: 'string' },
     },
   })
   const [command, intent] = positionals
@@ -268,6 +271,8 @@ async function main() {
       '  비용 상한: [--max-cost <USD>] (예산과 별개 축 — 라운드 수는 지출을 제어하지 못한다)\n' +
       '  격리: [--worktree] (전용 워크트리에서 돌고 결과를 zannabi/<실행> 브랜치로 남긴다)\n' +
       '  자기 확인: [--no-exec-shell] (실행 턴이 게이트 명령을 스스로 돌리는 것을 끈다 — 기본은 켬)\n' +
+      '  원격 승인: [--approve terminal|telegram] [--approve-timeout <초>]\n' +
+      '    telegram은 ZANNABI_TELEGRAM_BOT_TOKEN·ZANNABI_TELEGRAM_CHAT_ID를 요구합니다 (승인권이 곧 토큰이라 설정 파일이 아닙니다)\n' +
       '  게이트 고정: [--no-suggest] (제안 게이트 거부)' +
       ` [--gate-timeout <ms>] (기본 ${DEFAULT_GATE_TIMEOUT_MS})\n` +
       `  조합 프리셋: [--profile ${PROFILE_NAMES.join('|')}]\n` +
@@ -372,6 +377,62 @@ async function main() {
   const rejectSuggested = values['no-suggest'] ?? config.rejectSuggested ?? false
   const execShell = values['no-exec-shell'] === true ? false : (config.execShell ?? true)
 
+  /**
+   * 승인을 어디서 물을지 정한다.
+   *
+   * **core는 채널을 모른다** — 승인은 `LoopOptions.approve` 콜백 하나이고, 여기서 무엇을
+   * 꽂든 저널에는 `approval-requested`/`approval-resolved`가 같은 모양으로 남는다.
+   * 채널을 늘리는 데 core 수정이 필요 없다는 것이 파일 계약의 값이다.
+   */
+  const approve = ((): typeof approveViaTerminal => {
+    const channel = values.approve ?? 'terminal'
+    if (channel === 'terminal') return values.yes ? approveAutomatically : approveViaTerminal
+    if (channel !== 'telegram') {
+      console.error(`[zannabi] --approve는 terminal | telegram 중 하나여야 합니다: ${channel}`)
+      process.exit(1)
+    }
+    // --yes는 사람을 빼는 것이고 원격 승인은 사람을 넣는 것이다. 함께 주면 둘 중 무엇을
+    // 원했는지 알 수 없고, 어느 쪽으로 해석하든 사용자가 믿는 것과 갈릴 수 있다
+    if (values.yes) {
+      console.error('[zannabi] --yes와 --approve telegram은 함께 쓸 수 없습니다 — 자동 승인은 사람을 빼고 원격 승인은 사람을 넣습니다')
+      process.exit(1)
+    }
+    const token = process.env.ZANNABI_TELEGRAM_BOT_TOKEN
+    const chatId = process.env.ZANNABI_TELEGRAM_CHAT_ID
+    /**
+     * ★ **없으면 조용히 터미널로 내려가지 않고 세운다.**
+     *
+     * 원격 승인을 지정한 사람은 자리를 뜰 참이다. 조용히 터미널로 물으면 아무도 없는
+     * 화면에서 실행이 멈춘 채 밤을 보낸다 — 설정 누락이 침묵으로 나타나는 가장 나쁜 형태다.
+     */
+    if (!token || !chatId) {
+      const missing = [!token && 'ZANNABI_TELEGRAM_BOT_TOKEN', !chatId && 'ZANNABI_TELEGRAM_CHAT_ID'].filter(Boolean)
+      console.error(`[zannabi] --approve telegram에 필요한 환경변수가 없습니다: ${missing.join(', ')}`)
+      // 승인권은 봇 토큰을 쥔 쪽에 있다. 그래서 설정 파일이 아니라 환경변수다 —
+      // .zannabi.json은 저장소에 커밋되는 파일이다
+      console.error('[zannabi] 승인권이 곧 봇 토큰이므로 설정 파일이 아니라 환경변수로 받습니다')
+      process.exit(1)
+    }
+    const timeoutMs = number('approve-timeout', values['approve-timeout'], 0, 0) * 1000
+    return approveViaTelegram({
+      token,
+      chatId,
+      // 화면에 "어느 실행인지"를 적기 위한 것. 승인 콜백의 인자(계획·게이트·경고)만으로는
+      // 알 수 없고, 실물에서 같은 모양의 요청이 연달아 오면 구별이 되지 않았다
+      context: {
+        intent: intent!,
+        cwd,
+        budget,
+        ...(maxCostUsd === undefined ? {} : { maxCostUsd }),
+      },
+      // 텔레그램으로 물을 수 없을 때 물을 곳. --yes가 아니라 터미널인 것이 요점이다 —
+      // 채널이 막혔다고 사람 없이 도는 것으로 바뀌면 승인 게이트가 아니게 된다
+      fallback: approveViaTerminal,
+      log: message => console.log(`[zannabi] ${message}`),
+      ...(timeoutMs > 0 ? { timeoutMs } : {}),
+    })
+  })()
+
   let userGates: Gate[]
   try {
     // 설정 파일의 게이트가 먼저다 — 프로젝트의 완료 정의이고, 플래그는 그 위에 얹는 추가분이다.
@@ -428,7 +489,7 @@ async function main() {
       planAdapter: pickAdapter(plan),
       planLabel: label(plan),
       adapterFor: arm => pickAdapter({ agent: arm.agent as AgentName, model: arm.model }),
-      approve: values.yes ? approveAutomatically : approveViaTerminal,
+      approve,
       log: message => console.log(`[zannabi] ${message}`),
     })
     if (!summary) process.exit(1)
@@ -612,7 +673,7 @@ async function main() {
               console.log(`[zannabi] 라운드 ${round.round} 커밋: ${done.sha?.slice(0, 8)}`)
           },
         }),
-    approve: values.yes ? approveAutomatically : approveViaTerminal,
+    approve,
     log: message => console.log(`[zannabi] ${message}`),
   })
 

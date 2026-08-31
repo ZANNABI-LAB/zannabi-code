@@ -1,0 +1,18 @@
+{
+  "name": "@zannabi-lab/gateway-telegram",
+  "version": "0.0.1",
+  "description": "텔레그램 승인 게이트웨이 — 계획 승인을 터미널 밖으로 옮긴다",
+  "license": "Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/ZANNABI-LAB/zannabi-code.git",
+    "directory": "packages/gateway-telegram"
+  },
+  "homepage": "https://github.com/ZANNABI-LAB/zannabi-code",
+  "type": "module",
+  "dependencies": {
+    "@zannabi-lab/core": "workspace:*"
+  },
+  "module": "src/index.ts",
+  "types": "src/index.ts"
+}
