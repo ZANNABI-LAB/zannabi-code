@@ -76,6 +76,11 @@ test('E2E: --gate 형식이 잘못되면 → 종료 코드 1, 안내 메시지',
   expect(out).toContain('--gate')
 })
 
+/**
+ * `--yes`는 stdin 없이 통과한다. **사용자 게이트를 주므로 제안 게이트가 섞여도 진행한다** —
+ * 막는 것은 완료 기준 **전체**가 제안일 때뿐이고, 그쪽은 아래 전용 시험이 본다.
+ * (제안 게이트가 섞이는 것 자체는 값을 냈다: 실측에서 계획 에이전트가 산문 제약을 게이트로 바꿔 붙였다)
+ */
 test('E2E: --yes → stdin 없이 승인 통과', async () => {
   const project = mkdtempSync(join(tmpdir(), 'zannabi-e2e-yes-'))
   const proc = Bun.spawn(['bun', cliPath, 'run', '테스트 작업', '--cwd', project, '--gate', 'user:true', '--yes'], {
@@ -348,19 +353,6 @@ test('--yes: 완료 기준이 전부 에이전트 제안이면 실행을 거부�
   expect(out).toContain('사용자 게이트 없이는 진행하지 않습니다')
   // 게이트를 한 번도 돌리지 않았어야 한다 — 거부는 실행 전에 난다
   expect(out).not.toContain('status**: success')
-})
-
-test('--yes: 사용자 게이트가 하나라도 있으면 제안 게이트가 섞여도 진행한다', async () => {
-  // 제안 게이트 자체는 값을 냈다 — 실측에서 계획 에이전트가 산문 제약을 게이트로 바꿔 붙였다.
-  // 막는 것은 기준 **전체**가 제안일 때뿐이다
-  const project = mkdtempSync(join(tmpdir(), 'zannabi-e2e-mixed-gates-'))
-  const proc = Bun.spawn(
-    ['bun', cliPath, 'run', '테스트 작업', '--cwd', project, '--gate', 'user:true', '--yes'],
-    { env: { ...process.env, ZANNABI_ADAPTER: 'fake' }, stdout: 'pipe', stderr: 'pipe' },
-  )
-  await proc.exited
-  const out = await new Response(proc.stdout).text()
-  expect(out).toContain('success')
 })
 
 test('승인 화면이 게이트 출처를 보인다 — 판단이 필요한 유일한 순간이다', async () => {

@@ -6,7 +6,7 @@
 
 [![license](https://img.shields.io/badge/license-Apache--2.0-blue)](LICENSE)
 [![runtime](https://img.shields.io/badge/runtime-Bun-black)](https://bun.sh)
-![tests](https://img.shields.io/badge/tests-346%20passing-brightgreen)
+![tests](https://img.shields.io/badge/tests-343%20passing-brightgreen)
 
 > **Shake the branch before you cross.** — 잔나비는 건너기 전에 가지를 흔들어본다
 
@@ -540,7 +540,7 @@ core 변경분은 두 어댑터가 공유하는 프로세스 구동 배관을 �
 ## 개발
 
 ```bash
-bun test        # 346개
+bun test        # 343개
 bun run typecheck
 ```
 

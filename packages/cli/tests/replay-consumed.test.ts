@@ -55,10 +55,10 @@ test('replay가 복원하는 필드는 화면·재개 중 어딘가가 쓴다', 
     f => !DELIBERATELY_UNUSED[f] && !new RegExp(`\\bstate\\.${f}\\b`).test(consumers),
   )
   expect(unused).toEqual([])
-})
 
-test('안 쓰기로 한 필드는 이유가 적혀 있다', () => {
-  // 목록에 이름만 올리고 이유를 비우면 "검토했다"와 "미뤘다"가 구분되지 않는다
+  // 예외 목록에 이름만 올리고 이유를 비우면 "검토했다"와 "미뤘다"가 구분되지 않는다.
+  // **여기서 함께 본다** — 목록이 비어 있을 때 따로 도는 시험은 0회 순회라
+  // 통과해도 아무것도 지키지 않으면서 통과 수만 올린다
   for (const [field, reason] of Object.entries(DELIBERATELY_UNUSED)) {
     expect(replayFields()).toContain(field)
     expect(reason.length).toBeGreaterThan(10)
