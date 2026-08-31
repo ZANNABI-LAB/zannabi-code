@@ -9,7 +9,7 @@
  * 증명이고, 화면은 millim의 몫이다.
  */
 import type { ReplayState } from '@zannabi-lab/core'
-import { resumability } from '@zannabi-lab/core'
+import { resumability, contractGap } from '@zannabi-lab/core'
 
 /** 경과를 사람의 말로. 초·분·시간 세 구간이면 충분하다 — 밀리초는 게이트에서나 의미가 있다 */
 export function duration(ms: number): string {
@@ -70,9 +70,32 @@ function costLine(state: ReplayState): string | undefined {
   return `비용: $${state.spentUsd.toFixed(4)}${limit}${partial}`
 }
 
-export function renderStatus(state: ReplayState, now: Date = new Date()): string {
+export function renderStatus(
+  state: ReplayState,
+  now: Date = new Date(),
+  /**
+   * 증거를 찾은 프로젝트 경로. **저널의 `cwd`와 다르면 그 실행은 격리돼 돌았다.**
+   *
+   * 격리 실행은 워크트리에서 돌고 증거만 원본에 남기므로 두 경로가 갈린다. 저널이 그
+   * 사실을 이미 담고 있는데 화면이 안 쓰면, 나중에 증거를 보는 사람은 워킹트리에 변경이
+   * 없는데 `success`인 실행을 보고 어리둥절해진다 — 결과는 브랜치에 있다.
+   */
+  projectDir?: string,
+): string {
   const lines: string[] = []
   const head = state.phase === 'finished' ? `${PHASE_TEXT.finished} (${state.status})` : PHASE_TEXT[state.phase]
+  /**
+   * **판이 다르면 아래 전부가 의심스러우므로 맨 위에 적는다.**
+   *
+   * 저널이 계약 판을 싣고 replay가 복원하는데 화면이 한 번도 안 봤다 — 판이 다른 저널을
+   * 조용히 이 판으로 읽었다는 뜻이다. `replay`는 모르는 type을 건너뛰도록 만들어져 있어,
+   * 더 높은 판의 저널에서는 라운드가 통째로 빠져도 화면이 아무 말을 하지 않았다.
+   *
+   * 판을 밝히지 않은 저널(`unknown`)은 말하지 않는다 — 계약 이전에 남은 기록이 그렇고,
+   * 그것까지 경고하면 옛 실행을 볼 때마다 뜬다
+   */
+  const gap = contractGap(state.contractVersion)
+  if (gap.kind === 'newer' || gap.kind === 'older') lines.push(`⚠️  ${gap.text}`)
   lines.push(`실행: ${state.runId ?? '(알 수 없음)'}`)
   // intent가 여러 줄인 실행이 있다(실측에서 43줄). 전문을 뿌리면 정작 상태가 밀려난다
   if (state.intent) {
@@ -85,6 +108,10 @@ export function renderStatus(state: ReplayState, now: Date = new Date()): string
   if (state.profile) lines.push(`프리셋: ${state.profile}`)
   // 조 하나만 떼어 보는 사람에게 "이것은 비교의 일부였다"를 알린다
   if (state.raceId) lines.push(`best-of-N: ${state.raceId}의 조 하나입니다`)
+
+  // 워킹트리가 깨끗한데 success인 실행 앞에서 어리둥절하지 않게 한다 — 결과는 브랜치에 있다
+  if (projectDir && state.cwd && state.cwd !== projectDir && state.runId)
+    lines.push(`격리: 워크트리에서 돌았습니다 — 결과는 브랜치 zannabi/${state.runId}에 있습니다`)
 
   // 한 번에 돈 실행과 죽었다 이어 돈 실행은 다른 실행이다. 저널이 run-resumed를
   // 기록하는 이유가 정확히 이것인데, 화면이 안 쓰면 그 사실이 밖에서 사라진다
@@ -110,7 +137,21 @@ export function renderStatus(state: ReplayState, now: Date = new Date()): string
   }
 
   const budget = state.budget === undefined ? '?' : String(state.budget)
-  lines.push(`라운드: ${state.rounds.length}/${budget} 완료`)
+  /**
+   * **완료된 라운드와 시도한 라운드는 다르다.**
+   *
+   * 실행 턴이 실패하면(`agent-error`) 루프는 라운드를 완성하지 않고 끝나므로 완료 수는
+   * 0인데 시도는 1이다. 완료 수만 적으면 화면이 "0/4 완료"라고만 말해 **아무것도 안 해 본
+   * 실행처럼 보인다** — 실제로는 에이전트를 띄웠고 돈도 썼다. 저널의 `run-finished`가
+   * 그 숫자를 싣고 있는데 화면이 안 읽던 자리다.
+   *
+   * 같을 때는 적지 않는다. 대부분의 실행이 그렇고, 같은 값을 두 번 적으면 다른 경우가 묻힌다
+   */
+  const attempted =
+    state.attempts !== undefined && state.attempts > state.rounds.length
+      ? ` (시도 ${state.attempts}회 — 마지막 라운드는 완성되지 않았습니다)`
+      : ''
+  lines.push(`라운드: ${state.rounds.length}/${budget} 완료${attempted}`)
   for (const r of state.rounds) {
     const pass = r.evidence.filter(e => e.outcome === 'pass').length
     const repeat = r.repeatOf === undefined ? '' : ` · 라운드 ${r.repeatOf}과 동일`

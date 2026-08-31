@@ -3,7 +3,7 @@ import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { renderStatus, renderRunLine } from '../src/status'
-import { replay, parseJournal, JOURNAL_FILENAME, listRuns, resolveRun, readJournal } from '@zannabi-lab/core'
+import { replay, parseJournal, JOURNAL_FILENAME, listRuns, resolveRun, readJournal, resumability } from '@zannabi-lab/core'
 
 const CLI = join(import.meta.dir, '..', 'src', 'index.ts')
 
@@ -199,4 +199,62 @@ test('소요시간을 화면이 말한다 — 재개한 실행은 멎어 있던 
     journal([{ type: 'run-resumed', at: '2026-08-23T00:05:00.000Z', fromRound: 1, completedRounds: 0 }]),
   )
   expect(resumed).toContain('소요: 6분 (멎어 있던 시간 포함)')
+})
+
+test('모르는 계약 판의 저널은 그 사실을 맨 위에 말한다', () => {
+  // **회귀 방지**: 저널 첫 줄이 contractVersion을 싣고 replay가 복원하는데, 화면도 재개도
+  // 그 값을 한 번도 보지 않았다. replay는 모르는 type을 건너뛰도록 만들어져 있어
+  // 더 높은 판에서는 라운드가 통째로 빠져도 화면이 조용했다.
+  // 계약 문서 §5가 "판 올리기"를 규정해 놓고 읽는 쪽이 판을 무시하면 규정은 문서에만 있다
+  const state = replay(
+    parseJournal(
+      [
+        { type: 'run-started', at: 't0', contractVersion: 99, runId: 'r', intent: 'i', cwd: '/x', budget: 3 },
+      ]
+        .map(e => JSON.stringify(e))
+        .join('\n'),
+    ),
+  )
+  const text = renderStatus(state)
+  expect(text).toContain('v99')
+  expect(text).toContain('실제보다 적을 수 있습니다')
+  // 아래 내용 전부가 의심스러우므로 맨 위여야 한다
+  expect(text.split('\n')[0]).toContain('⚠️')
+})
+
+test('모르는 판의 저널로는 이어 돌지 않는다', () => {
+  // 보는 것과 이어가는 것은 다르다 — 화면은 덜 보여주고 끝나지만,
+  // 재개는 놓친 기록 위에 새 라운드를 쌓아 증거를 망친다
+  const state = replay(
+    parseJournal(
+      [
+        { type: 'run-started', at: 't0', contractVersion: 99, runId: 'r', intent: 'i', cwd: '/x', budget: 3 },
+        { type: 'approval-requested', at: 't1', gates: [{ name: 'g', cmd: 'true', timeoutMs: 1000, source: 'user' }], warnings: [] },
+        { type: 'approval-resolved', at: 't2', action: 'approve' },
+      ]
+        .map(e => JSON.stringify(e))
+        .join('\n'),
+    ),
+  )
+  const can = resumability(state)
+  expect(can.ok).toBe(false)
+  if (!can.ok) expect(can.reason).toContain('v99')
+})
+
+test('격리돼 돈 실행은 결과가 브랜치에 있다고 말한다', () => {
+  // 저널의 cwd(워크트리)와 증거가 있는 프로젝트 경로가 갈린다 — 저널이 이미 아는 사실이다.
+  // 안 쓰면 워킹트리가 깨끗한데 success인 실행 앞에서 사람이 어리둥절해진다
+  const state = replay(
+    parseJournal(
+      [
+        { type: 'run-started', at: 't0', contractVersion: 1, runId: 'r-1', intent: 'i', cwd: '/tmp/zannabi-wt-x/work', budget: 3 },
+        { type: 'run-finished', at: 't1', status: 'success', attempts: 1 },
+      ]
+        .map(e => JSON.stringify(e))
+        .join('\n'),
+    ),
+  )
+  expect(renderStatus(state, new Date(), '/home/me/project')).toContain('브랜치 zannabi/r-1')
+  // 같은 자리에서 돌았으면 말하지 않는다 — 격리는 예외이지 기본이 아니다
+  expect(renderStatus(state, new Date(), '/tmp/zannabi-wt-x/work')).not.toContain('격리:')
 })

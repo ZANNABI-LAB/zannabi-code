@@ -14,7 +14,7 @@
 import { emptyUsage, type Usage } from './adapter'
 import type { CostCoverage } from './cost'
 import type { Gate, Round, SelfCheck } from './goal'
-import type { JournalEvent } from './journal'
+import { CONTRACT_VERSION, type JournalEvent } from './journal'
 
 /** 지금 이 실행이 무엇을 하는 중인가. `run-finished`가 없는 저널에서만 진행 중이다 */
 export type RunPhase =
@@ -252,6 +252,40 @@ export function toRounds(rounds: ReplayRound[]): Round[] {
 }
 
 /**
+ * 이 저널을 이 러너가 읽어도 되는가.
+ *
+ * **계약을 파는 도구가 자기 계약 판을 안 읽고 있었다.** 저널 첫 줄이 `contractVersion`을
+ * 싣고 replay가 그것을 복원하는데, 화면도 재개도 그 값을 한 번도 보지 않았다 —
+ * 판이 다른 저널을 조용히 이 판으로 읽었다는 뜻이다. 계약 문서 §5가 "판 올리기"를
+ * 규정해 놓고 읽는 쪽 구현이 판을 무시하면, 규정은 문서에만 있는 것이다.
+ *
+ * 판이 **높은** 쪽이 위험하다: 우리가 모르는 어휘가 있고, `replay`는 모르는 type을
+ * 건너뛰도록 만들어져 있어 **조용히 빠뜨린다.** 라운드 하나가 통째로 사라져도 화면은
+ * 아무 말을 하지 않는다. 낮은 판은 대체로 읽힌다 — 어휘가 늘기만 했다면 그렇다.
+ */
+export function contractGap(
+  version: number | undefined,
+): { kind: 'same' | 'older' | 'newer' | 'unknown'; text?: string } {
+  if (version === undefined)
+    return {
+      kind: 'unknown',
+      text: '이 저널은 계약 판을 밝히지 않습니다 — 계약 이전에 남은 기록일 수 있습니다',
+    }
+  if (version === CONTRACT_VERSION) return { kind: 'same' }
+  if (version < CONTRACT_VERSION)
+    return {
+      kind: 'older',
+      text: `이 저널은 계약 v${version}이고 이 러너는 v${CONTRACT_VERSION}입니다 — 옛 판이라 일부 값이 비어 보일 수 있습니다`,
+    }
+  return {
+    kind: 'newer',
+    text:
+      `이 저널은 계약 v${version}이고 이 러너는 v${CONTRACT_VERSION}까지만 압니다 — ` +
+      '모르는 이벤트는 건너뛰므로 아래 내용이 실제보다 적을 수 있습니다',
+  }
+}
+
+/**
  * 이 실행을 이어서 돌 수 있는가, 없다면 왜 없는가.
  *
  * 판단을 재개 명령 안에 두지 않고 따로 뺀 이유: 이유를 사람에게 **말해야** 하기 때문이다.
@@ -261,6 +295,14 @@ export function resumability(
   state: ReplayState,
 ): { ok: true; nextRound: number } | { ok: false; reason: string } {
   if (state.runId === undefined) return { ok: false, reason: '저널에 run-started가 없습니다 — 이 실행의 시작 기록이 유실됐습니다' }
+  // 모르는 판의 저널로는 **이어 돌지 않는다.** 보는 것과 이어가는 것은 다르다 —
+  // 화면은 덜 보여주고 끝나지만, 재개는 놓친 라운드 위에 새 라운드를 쌓아 증거를 망친다
+  const gap = contractGap(state.contractVersion)
+  if (gap.kind === 'newer')
+    return {
+      ok: false,
+      reason: `${gap.text} — 이어 돌면 놓친 기록 위에 새 라운드를 쌓게 되므로 재개하지 않습니다`,
+    }
   if (state.phase === 'finished')
     return { ok: false, reason: `이미 ${state.status}로 끝난 실행입니다 — 이어서 돌 것이 없습니다` }
   if (state.approved !== true)

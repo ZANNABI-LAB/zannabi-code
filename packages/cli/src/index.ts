@@ -166,7 +166,7 @@ async function status(cwd: string, name?: string) {
     )
     process.exit(1)
   }
-  console.log(renderStatus(replay(events)))
+  console.log(renderStatus(replay(events), new Date(), cwd))
 }
 
 async function main() {
