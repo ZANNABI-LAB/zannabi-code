@@ -6,7 +6,7 @@
  * 라고 적어 둔 자리다.
  */
 import { test, expect } from 'bun:test'
-import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
+import { mkdtempSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { runLoop } from '../src/loop'

@@ -517,9 +517,18 @@ async function runLoopWith(
       ? { gates: shared.gates, dropped: shared.dropped ?? [] }
       : mergeGates(opts.userGates, suggested, { reject: opts.rejectSuggested })
   const dropped = merged.dropped
+
+  /**
+   * 어떻게 끝나든 결과에 함께 실리는 것들.
+   *
+   * 종료 지점이 아홉이라 넷을 매번 손으로 적고 있었다 — `LoopResult`에 축이 하나 늘 때
+   * 아홉 곳을 고쳐야 하고, **한 곳을 빠뜨리면 그 종료 경로에서만 값이 사라진다.**
+   * 함수인 이유는 `usage`가 라운드마다 갱신되기 때문이다(호출 시점의 값을 읽어야 한다).
+   */
+  const common = () => ({ runtime, usage, dropped, stallDead })
   const gates = merged.gates.map(withTimeout)
   if (gates.length === 0)
-    return { status: 'no-gates', attempts: 0, rounds: [], runtime, usage, dropped, stallDead }
+    return { status: 'no-gates', attempts: 0, rounds: [], ...common() }
 
   // 재개는 승인을 다시 묻지 않는다 — **다시 묻는 것은 이어가는 것이 아니라 새 실행이다.**
   // 사전점검도 건너뛴다: 그 검사의 값은 "계획 비용을 날리기 전에 잡는 것"인데
@@ -557,7 +566,7 @@ async function runLoopWith(
         : {}),
     })
     if (decision.action === 'abort')
-      return { status: 'aborted', attempts: 0, rounds: [], runtime, usage, dropped, stallDead, detail: decision.reason }
+      return { status: 'aborted', attempts: 0, rounds: [], ...common(), detail: decision.reason }
   }
 
   if (!resumed) opts.store.writeGoal({
@@ -593,10 +602,7 @@ async function runLoopWith(
         status: 'cost-exhausted',
         attempts: attempt - 1,
         rounds,
-        runtime,
-        usage,
-        dropped,
-        stallDead,
+        ...common(),
         detail: `${costDetail(stop)} — 예산 ${opts.budget}라운드 중 ${attempt - 1}라운드를 돌고 멈췄습니다`,
       }
     opts.store.appendJournal({ type: 'round-started', round: attempt })
@@ -665,7 +671,7 @@ async function runLoopWith(
 
     if (!exec.ok)
       return {
-        status: 'agent-error', attempts: attempt, rounds, runtime, usage, dropped, stallDead, detail: exec.errorReason,
+        status: 'agent-error', attempts: attempt, rounds, ...common(), detail: exec.errorReason,
       }
 
     // 게이트를 돌리기 직전의 상태를 한 번 찍어 그 라운드의 모든 증거에 결박한다.
@@ -728,10 +734,7 @@ async function runLoopWith(
         status: 'env-error',
         attempts: attempt,
         rounds,
-        runtime,
-        usage,
-        dropped,
-        stallDead,
+        ...common(),
         detail: broken.map(e => `[${e.gate}] ${e.cmd} → exit ${e.exitCode}`).join('; '),
       }
     if (evidence.every(e => e.outcome === 'pass')) {
@@ -786,16 +789,13 @@ async function runLoopWith(
             status: 'unreproduced-pass',
             attempts: attempt,
             rounds,
-            runtime,
-            usage,
-            dropped,
-            stallDead,
+            ...common(),
             detail:
               `통과가 재현되지 않은 게이트: ${recheck.unreproduced.join(', ')}` +
               ' — 첫 회는 통과했으나 다시 돌리자 같은 결과가 나오지 않아 완료로 보지 않습니다',
           }
       }
-      return { status: 'success', attempts: attempt, rounds, runtime, usage, dropped, stallDead }
+      return { status: 'success', attempts: attempt, rounds, ...common() }
     }
 
     // 같은 자리를 도는 중이면 남은 예산을 태우지 않는다. 예산은 진전을 사는 값이지
@@ -805,10 +805,7 @@ async function runLoopWith(
         status: 'no-progress',
         attempts: attempt,
         rounds,
-        runtime,
-        usage,
-        dropped,
-        stallDead,
+        ...common(),
         detail: `${stallLimit}라운드 연속으로 변경분과 게이트 결과가 동일합니다 (diff ${revision.diffHash})`,
       }
 
@@ -818,10 +815,7 @@ async function runLoopWith(
     status: 'budget-exhausted',
     attempts: opts.budget,
     rounds,
-    runtime,
-    usage,
-    dropped,
-    stallDead,
+    ...common(),
     detail: userGateSummary(rounds),
   }
 }

@@ -1,11 +1,8 @@
 import { test, expect } from 'bun:test'
-import { mkdtempSync } from 'node:fs'
-import { tmpdir } from 'node:os'
-import { join } from 'node:path'
 import type { AgentResult, Usage } from '../src/adapter'
 import { checkCost, costCoverage, reportedCost, coverageWarning } from '../src/cost'
-import { runLoop, type LoopOptions } from '../src/loop'
-import { RunStore } from '../src/store'
+import { runLoop } from '../src/loop'
+import { loopOptions, type PartialOptions } from './_fixture'
 import { FakeAdapter, fakeResult } from '../src/testing'
 
 const usage = (costUsd?: number, turns = 1): Usage => ({
@@ -81,19 +78,7 @@ function withUsage(result: AgentResult, u: Usage): AgentResult {
   return { ...result, usage: u }
 }
 
-function options(partial: Partial<LoopOptions> & { adapter: LoopOptions['adapter'] }): LoopOptions {
-  const cwd = mkdtempSync(join(tmpdir(), 'zannabi-cost-'))
-  return {
-    intent: '비용 상한 테스트',
-    userGates: [],
-    budget: 4,
-    cwd,
-    store: new RunStore(cwd, '비용 상한 테스트'),
-    approve: async () => ({ action: 'approve' }),
-    log: () => {},
-    ...partial,
-  }
-}
+const options = (p: PartialOptions) => loopOptions('cost', { budget: 4, intent: '비용 상한 테스트', ...p })
 
 test('상한에 닿으면 예산이 남아도 다음 라운드를 시작하지 않는다', async () => {
   // 계획 $0.4 + 실행 $0.4씩. 상한 $1.0 → 2라운드까지 돌고(누적 $1.2) 3라운드는 시작 못 한다

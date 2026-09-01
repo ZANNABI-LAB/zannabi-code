@@ -5,7 +5,7 @@ import { join } from 'node:path'
 import { renderStatus, renderRunLine } from '../src/status'
 import { replay, parseJournal, JOURNAL_FILENAME, listRuns, resolveRun, readJournal, resumability } from '@zannabi-lab/core'
 
-const CLI = join(import.meta.dir, '..', 'src', 'index.ts')
+import { CLI } from './_fixture'
 
 /** fake 어댑터로 실행 하나를 만든다 — 실제 저널을 쓰는 경로를 그대로 탄다 */
 async function runOnce(): Promise<string> {

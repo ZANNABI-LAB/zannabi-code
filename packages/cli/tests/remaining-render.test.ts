@@ -70,17 +70,27 @@ describe('리포트', () => {
       ]),
       '작업',
     )
-    expect(md).toContain('## 라운드별 남은 일')
+    expect(md).toContain('## 라운드별 진행')
     // 3건 → 2건 → 1건으로 줄어든 것이 보여야 한다. 예산 소진이라는 사실만으로는
     // 여기까지 왔다는 것을 알 수 없다
-    expect(md).toContain('| 1 | 3건: a, b, c |')
-    expect(md).toContain('| 2 | 2건: b, c | a |')
-    expect(md).toContain('| 3 | 1건: c | b |')
+    expect(md).toContain('| 1 | `d1` | 3/3 — a, b, c | · | · |')
+    expect(md).toContain('| 2 | `d2` | 2/3 — b, c | a | · |')
+    expect(md).toContain('| 3 | `d3` | 1/3 — c | b | · |')
   })
 
   test('라운드가 하나면 표를 그리지 않는다 — 견줄 앞이 없다', () => {
     const md = buildReport(result([round(1, ev('a', 'fail'))]), '작업')
-    expect(md).not.toContain('## 라운드별 남은 일')
+    expect(md).not.toContain('## 라운드별 진행')
+  })
+
+  test('★ 리비전과 남은 일이 한 표에 있다 — 남은 일이 그대로여도 파일이 달라졌으면 다른 시도다', () => {
+    const md = buildReport(
+      result([round(1, ev('a', 'fail')), round(2, ev('a', 'fail'))]),
+      '작업',
+    )
+    // 정체 판정이 게이트 결과와 변경분을 함께 보는 것과 같은 이유로, 사람도 둘을 나란히 봐야 한다
+    expect(md).toContain('| 1 | `d1` | 1/1 — a |')
+    expect(md).toContain('| 2 | `d2` | 1/1 — a |')
   })
 })
 

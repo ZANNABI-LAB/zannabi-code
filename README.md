@@ -379,16 +379,17 @@ zannabi run "작업" --gate "build:bun run build" --approve telegram
 | `reopened` | 앞 라운드에서 통과했다가 다시 실패한 것 — **고치다 깬 자리** |
 
 ```
-## 라운드별 남은 일
+## 라운드별 진행
 
-| 라운드 | 남은 일 | 닫힘 | 되열림 |
-|---|---|---|---|
-| 2 | 2건: lint, flaky-api    | build | ·          |
-| 3 | 2건: regression, flaky-api | lint  | regression |
+| 라운드 | 리비전 | 남은 일 | 닫힘 | 되열림 |
+|---|---|---|---|---|
+| 2 | `a1b2c3` | 2/4 — lint, flaky-api       | build | ·          |
+| 3 | `d4e5f6` | 2/4 — regression, flaky-api | lint  | regression |
 ```
 
 **두 라운드 모두 게이트 2/4 통과다.** 통과 수만 보면 같은 라운드인데, 실제로는 `lint`를 닫으면서
-`regression`을 깼다. `reopened`가 없으면 이 차이가 어디에도 안 남는다 — 그리고 그때 필요한 행동은
+`regression`을 깼다. 리비전 해시가 같은 표에 있는 이유도 같다 — **남은 일이 그대로여도 파일이
+달라졌다면 다른 시도**이고, 정체 판정이 그 둘을 함께 보는 것과 같은 근거다. `reopened`가 없으면 이 차이가 어디에도 안 남는다 — 그리고 그때 필요한 행동은
 "계속 고치기"가 아니라 **접근을 다시 보는 것**이라, 다음 라운드 프롬프트에도 그렇게 전한다.
 
 **착안은 gajae-code의 `ultragoal`에서 빌렸다** — 실패하면 라운드를 더 쓰는 대신 blocker를 하나
@@ -638,7 +639,7 @@ core 변경분은 두 어댑터가 공유하는 프로세스 구동 배관을 �
 ## 개발
 
 ```bash
-bun test        # 431개
+bun test        # 432개
 bun run typecheck
 ```
 

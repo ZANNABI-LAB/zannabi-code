@@ -102,8 +102,9 @@ test('라운드가 여럿이면 라운드별 diff 해시와 반복 여부가 실
     '작업',
   )
   expect(report).toContain('- **head**: `c0ffee`')
-  expect(report).toContain('1: diff `aaa`')
-  expect(report).toContain('3: diff `bbb`, gates 0/0 pass — 라운드 2과 동일')
+  expect(report).toContain('| 1 | `aaa` |')
+  // 리비전이 같고 게이트 결과도 같았다는 사실은 정체 판정의 근거라 표에 그대로 남는다
+  expect(report).toContain('| 3 | `bbb` · 라운드 2과 동일 |')
 })
 
 test('증거 디렉토리(.zannabi)는 diff에 섞이지 않는다', async () => {

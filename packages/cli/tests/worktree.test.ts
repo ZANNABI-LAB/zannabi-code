@@ -4,38 +4,15 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { listRuns } from '@zannabi-lab/core'
 
-const CLI = join(import.meta.dir, '..', 'src', 'index.ts')
+import { cli as runCli, repo as makeRepo, git } from './_fixture'
 
-function repo(): string {
-  const dir = mkdtempSync(join(tmpdir(), 'zannabi-cli-wt-'))
-  Bun.spawnSync(['git', 'init', '-q', '-b', 'main', '.'], { cwd: dir })
-  Bun.spawnSync(['git', 'config', 'user.email', 'test@test'], { cwd: dir })
-  Bun.spawnSync(['git', 'config', 'user.name', 'test'], { cwd: dir })
-  writeFileSync(join(dir, 'base.txt'), 'base\n')
-  Bun.spawnSync(['git', 'add', '-A'], { cwd: dir })
-  Bun.spawnSync(['git', 'commit', '-qm', 'init'], { cwd: dir })
-  return dir
-}
+/** 워크트리 시험은 늘 대상 저장소를 지정해 돈다 */
+const cli = (cwd: string, args: string[]) => runCli([...args, '--cwd', cwd])
 
-async function cli(cwd: string, args: string[]) {
-  const proc = Bun.spawn(['bun', 'run', CLI, ...args, '--cwd', cwd], {
-    env: { ...process.env, ZANNABI_ADAPTER: 'fake' },
-    stdout: 'pipe',
-    stderr: 'pipe',
-  })
-  const [out, err] = await Promise.all([
-    new Response(proc.stdout).text(),
-    new Response(proc.stderr).text(),
-  ])
-  return { code: await proc.exited, out, err }
-}
 
-function git(args: string[], cwd: string): string {
-  return Bun.spawnSync(['git', ...args], { cwd }).stdout.toString().trim()
-}
 
 test('--worktree는 전용 워크트리에서 돌고 원본 워킹트리를 건드리지 않는다', async () => {
-  const cwd = repo()
+  const cwd = makeRepo('cli-wt')
   writeFileSync(join(cwd, 'mywork.txt'), '사람이 편집 중\n')
 
   // 게이트가 워크트리 안에서 파일을 만든다 — 그 파일이 어디에 생기는지가 격리의 증거다
@@ -68,7 +45,7 @@ test('--worktree는 전용 워크트리에서 돌고 원본 워킹트리를 건�
 test('워크트리 실행의 diff.patch는 비어 있지 않다', async () => {
   // 라운드마다 커밋하므로 끝난 시점의 워킹트리는 깨끗하다.
   // 그때 워킹트리 diff를 쓰면 증거가 "아무것도 안 바꿨다"고 거짓말을 한다
-  const cwd = repo()
+  const cwd = makeRepo('cli-wt')
   await cli(cwd, ['run', '패치 확인', '--yes', '--worktree', '--gate', 'make:touch made.txt'])
 
   const runId = listRuns(cwd)[0]
@@ -91,13 +68,11 @@ test('실행 턴이 실패해도 에이전트가 쓴 것은 브랜치에 건져�
   // 루프가 라운드를 만들지 않고 끝나 커밋이 한 번도 일어나지 않았다. 그 상태로 워크트리를
   // 지우면서 에이전트가 쓴 파일이 통째로 사라졌고, 화면에는 "바뀐 파일이 없었습니다"가 떴다.
   // worktree.ts 첫머리가 "실패로 끝난 실행의 작업물도 사라지면 안 된다"고 적어 놓은 그 자리다
-  const cwd = repo()
-  const proc = Bun.spawn(
-    ['bun', 'run', CLI, 'run', '실행 실패', '--yes', '--worktree', '--gate', 'user:true', '--cwd', cwd],
-    { env: { ...process.env, ZANNABI_ADAPTER: 'fake-exec-error' }, stdout: 'pipe', stderr: 'pipe' },
+  const cwd = makeRepo('cli-wt')
+  const { out } = await runCli(
+    ['run', '실행 실패', '--yes', '--worktree', '--gate', 'user:true', '--cwd', cwd],
+    { ZANNABI_ADAPTER: 'fake-exec-error' },
   )
-  await proc.exited
-  const out = await new Response(proc.stdout).text()
 
   expect(out).toContain('agent-error')
   expect(out).toContain('브랜치에 건졌습니다')

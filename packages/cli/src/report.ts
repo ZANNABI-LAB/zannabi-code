@@ -234,23 +234,6 @@ export function buildReport(
     for (const signal of e.signals ?? []) lines.push(`  - \`${signal}\``)
   }
 
-  /**
-   * **라운드마다 남은 일이 어떻게 줄었나.** 라운드가 하나면 그릴 것이 없다.
-   *
-   * 이 표가 없으면 "예산을 다 썼다"는 사실만 남고 **어디까지 갔는지**가 사라진다 —
-   * 5→3→3으로 끝난 실행과 5→5→5로 끝난 실행은 이어서 할 사람에게 전혀 다른 상황이다.
-   */
-  if (result.rounds.length > 1) {
-    lines.push(``, `## 라운드별 남은 일`, ``, `| 라운드 | 남은 일 | 닫힘 | 되열림 |`, `|---|---|---|---|`)
-    for (let i = 0; i < result.rounds.length; i++) {
-      const w = remainingWork(result.rounds.slice(0, i + 1))
-      lines.push(
-        `| ${result.rounds[i]!.round} | ${w.open.length === 0 ? '— 없음' : `${w.open.length}건: ${w.open.join(', ')}`}` +
-          ` | ${w.closed.join(', ') || '·'} | ${w.reopened.join(', ') || '·'} |`,
-      )
-    }
-  }
-
   // 재확인에서 갈린 게이트의 회차별 결과. status 한 줄로는 간헐인지 결정론인지 구별되지 않는다
   const unreproducedGates = last?.unreproduced ?? []
   if (unreproducedGates.length > 0 && last?.recheck) {
@@ -380,16 +363,33 @@ export function buildReport(
     )
   }
 
-  // 라운드별 diff 해시. 어느 라운드에서 파일이 실제로 달라졌는지가 한눈에 보여야
-  // no-progress 판정을 사람이 사후 검증할 수 있다
+  /**
+   * **라운드마다 무엇이 달라졌나.** 라운드가 하나면 견줄 앞이 없어 그리지 않는다.
+   *
+   * 한동안 이 자리에 표가 둘이었다 — diff 해시와 통과 수를 적는 `## Rounds`,
+   * 남은 일을 적는 표. **같은 조건에 같은 축(라운드)이라 읽는 사람이 두 번 훑어야 했고**,
+   * `gates 2/4 pass`는 남은 일 건수에서 파생되는 값이라 정보도 겹쳤다.
+   *
+   * diff 해시가 함께 있어야 하는 이유: 남은 일이 그대로여도 **파일이 달라졌다면 다른 시도**다.
+   * 정체 판정이 그 둘을 함께 보는 것과 같은 이유이고, 사람이 사후에 그 판정을 검증하는 근거다.
+   */
   if (result.rounds.length > 1) {
-    lines.push(``, `## Rounds`, ``)
-    for (const r of result.rounds) {
-      const passed = r.evidence.filter(e => e.outcome === 'pass').length
-      const repeat = r.repeatOf !== undefined ? ` — 라운드 ${r.repeatOf}과 동일` : ''
+    lines.push(
+      ``, `## 라운드별 진행`, ``,
+      `| 라운드 | 리비전 | 남은 일 | 닫힘 | 되열림 |`,
+      `|---|---|---|---|---|`,
+    )
+    for (let i = 0; i < result.rounds.length; i++) {
+      const r = result.rounds[i]!
+      const w = remainingWork(result.rounds.slice(0, i + 1))
+      const same = r.repeatOf === undefined ? '' : ` · 라운드 ${r.repeatOf}과 동일`
+      const left =
+        w.open.length === 0
+          ? '없음'
+          : `${w.open.length}/${r.evidence.length} — ${w.open.join(', ')}`
       lines.push(
-        `- ${r.round}: diff \`${r.revision.diffHash ?? 'untracked'}\`` +
-          `, gates ${passed}/${r.evidence.length} pass${repeat}`,
+        `| ${r.round} | \`${r.revision.diffHash ?? 'untracked'}\`${same} | ${left}` +
+          ` | ${w.closed.join(', ') || '·'} | ${w.reopened.join(', ') || '·'} |`,
       )
     }
   }

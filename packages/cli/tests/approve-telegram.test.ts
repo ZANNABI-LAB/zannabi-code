@@ -4,7 +4,7 @@ import { tmpdir, hostname } from 'node:os'
 import { join } from 'node:path'
 import { fingerprint } from '@zannabi-lab/gateway-telegram'
 
-const cliPath = join(import.meta.dir, '../src/index.ts')
+import { CLI } from './_fixture'
 const TOKEN = '123456:AAH-e2e-fake-token'
 const CHAT = '4242'
 
@@ -36,7 +36,7 @@ const telegramEnv = (home: string) => ({
 })
 
 test('E2E: --approve에 모르는 채널을 주면 세운다', async () => {
-  const proc = Bun.spawn(['bun', cliPath, 'run', '작업', '--cwd', project('ch'), '--approve', 'carrier-pigeon'], {
+  const proc = Bun.spawn(['bun', CLI, 'run', '작업', '--cwd', project('ch'), '--approve', 'carrier-pigeon'], {
     env: { ...process.env, ZANNABI_ADAPTER: 'fake' },
     stdout: 'pipe',
     stderr: 'pipe',
@@ -49,7 +49,7 @@ test('★ E2E: 환경변수가 없으면 조용히 터미널로 내려가지 않
   const env: Record<string, string | undefined> = { ...process.env, ZANNABI_ADAPTER: 'fake' }
   delete env.ZANNABI_TELEGRAM_BOT_TOKEN
   delete env.ZANNABI_TELEGRAM_CHAT_ID
-  const proc = Bun.spawn(['bun', cliPath, 'run', '작업', '--cwd', project('env'), '--approve', 'telegram'], {
+  const proc = Bun.spawn(['bun', CLI, 'run', '작업', '--cwd', project('env'), '--approve', 'telegram'], {
     env,
     // 터미널로 내려갔다면 이 승인으로 실행이 진행돼 버린다 — 그것을 잡는 시험이다
     stdin: new Response('y\n').body!,
@@ -67,7 +67,7 @@ test('★ E2E: 환경변수가 없으면 조용히 터미널로 내려가지 않
 test('E2E: --yes와 --approve telegram은 함께 쓸 수 없다', async () => {
   const home = project('yes-home')
   const proc = Bun.spawn(
-    ['bun', cliPath, 'run', '작업', '--cwd', project('yes'), '--approve', 'telegram', '--yes'],
+    ['bun', CLI, 'run', '작업', '--cwd', project('yes'), '--approve', 'telegram', '--yes'],
     { env: telegramEnv(home), stdout: 'pipe', stderr: 'pipe' },
   )
   expect(await proc.exited).toBe(1)
@@ -77,7 +77,7 @@ test('E2E: --yes와 --approve telegram은 함께 쓸 수 없다', async () => {
 test('E2E: --approve-timeout이 정수가 아니면 세운다', async () => {
   const home = project('to-home')
   const proc = Bun.spawn(
-    ['bun', cliPath, 'run', '작업', '--cwd', project('to'), '--approve', 'telegram', '--approve-timeout', 'soon'],
+    ['bun', CLI, 'run', '작업', '--cwd', project('to'), '--approve', 'telegram', '--approve-timeout', 'soon'],
     { env: telegramEnv(home), stdout: 'pipe', stderr: 'pipe' },
   )
   expect(await proc.exited).toBe(1)
@@ -95,7 +95,7 @@ test('★ E2E: run이 --approve telegram을 실제 승인 경로에 꽂는다 (�
   const home = project('wire-home')
   holdLock(home)
   const proc = Bun.spawn(
-    ['bun', cliPath, 'run', '작업', '--cwd', project('wire'), '--approve', 'telegram'],
+    ['bun', CLI, 'run', '작업', '--cwd', project('wire'), '--approve', 'telegram'],
     { env: telegramEnv(home), stdin: new Response('y\n').body!, stdout: 'pipe', stderr: 'pipe' },
   )
   const exitCode = await proc.exited
@@ -123,7 +123,7 @@ test('★ E2E: race도 같은 승인 경로를 쓴다 — 조마다 묻지 않�
   ]) Bun.spawnSync(args, { cwd })
 
   const proc = Bun.spawn(
-    ['bun', cliPath, 'race', '작업', '--cwd', cwd,
+    ['bun', CLI, 'race', '작업', '--cwd', cwd,
      '--arm', 'claude', '--arm', 'codex', '--gate', 'user:true', '--approve', 'telegram'],
     { env: telegramEnv(home), stdin: new Response('y\n').body!, stdout: 'pipe', stderr: 'pipe' },
   )

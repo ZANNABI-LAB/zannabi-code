@@ -1,32 +1,18 @@
 import { test, expect } from 'bun:test'
-import { mkdtempSync, writeFileSync, existsSync, readFileSync, readdirSync } from 'node:fs'
-import { tmpdir } from 'node:os'
+import { writeFileSync, existsSync, readFileSync, readdirSync } from 'node:fs'
 import { join } from 'node:path'
+import { repo as makeRepo, git } from './_fixture'
 import { listRuns, readJournal, replay } from '@zannabi-lab/core'
 import { runRace, RACES_DIR } from '../src/race'
 import { FakeAdapter, fakeResult, type AgentAdapter } from '@zannabi-lab/core'
 
-function repo(): string {
-  const dir = mkdtempSync(join(tmpdir(), 'zannabi-race-'))
-  Bun.spawnSync(['git', 'init', '-q', '-b', 'main', '.'], { cwd: dir })
-  Bun.spawnSync(['git', 'config', 'user.email', 'test@test'], { cwd: dir })
-  Bun.spawnSync(['git', 'config', 'user.name', 'test'], { cwd: dir })
-  writeFileSync(join(dir, 'base.txt'), 'base\n')
-  Bun.spawnSync(['git', 'add', '-A'], { cwd: dir })
-  Bun.spawnSync(['git', 'commit', '-qm', 'init'], { cwd: dir })
-  return dir
-}
-
 const PLAN = '계획: 한다.\n```json\n{"gates":[{"name":"suggested","cmd":"true"}]}\n```'
 
-function git(args: string[], cwd: string): string {
-  return Bun.spawnSync(['git', ...args], { cwd }).stdout.toString().trim()
-}
 
 test('계획은 한 번만 세우고 모든 조가 공유한다', async () => {
   // race의 설계 전체가 여기 걸려 있다: 조마다 계획을 세우면 무엇 때문에 이겼는지 알 수 없고,
   // 계획 비용을 N번 내며, 승인이 N번 뜨는 도구는 쓸 수 없다
-  const cwd = repo()
+  const cwd = makeRepo('race')
   let planCalls = 0
   const planAdapter: AgentAdapter = {
     name: 'plan',
@@ -78,7 +64,7 @@ test('계획은 한 번만 세우고 모든 조가 공유한다', async () => {
 }, 30_000)
 
 test('세 조가 동시에 돌아도 각자의 증거와 브랜치가 따로 남는다', async () => {
-  const cwd = repo()
+  const cwd = makeRepo('race')
   const marks = ['alpha', 'beta', 'gamma']
 
   const summary = await runRace({
@@ -119,7 +105,7 @@ test('세 조가 동시에 돌아도 각자의 증거와 브랜치가 따로 남
 test('조들의 저널이 같은 raceId를 달아 서로 묶인다', async () => {
   // 없으면 같은 작업의 조 셋이 서로 무관한 실행 셋으로 보인다 —
   // race를 여러 번 돌린 저장소에서 어느 실행이 어느 비교에 속했는지 알 수 없다
-  const cwd = repo()
+  const cwd = makeRepo('race')
   const summary = await runRace({
     intent: '묶임 확인',
     cwd,
@@ -144,7 +130,7 @@ test('조들의 저널이 같은 raceId를 달아 서로 묶인다', async () =>
 }, 30_000)
 
 test('집계가 파일로 남고, 개별 실행의 판정과 같은 말을 한다', async () => {
-  const cwd = repo()
+  const cwd = makeRepo('race')
   const summary = await runRace({
     intent: '집계 확인',
     cwd,
@@ -182,7 +168,7 @@ test('집계가 파일로 남고, 개별 실행의 판정과 같은 말을 한�
 
 test('계획이 실패하면 조를 하나도 돌리지 않는다', async () => {
   // 계획 없이 도는 실행은 완료 기준이 없다. 실패를 알면서 N배의 돈을 쓰지 않는다
-  const cwd = repo()
+  const cwd = makeRepo('race')
   const summary = await runRace({
     intent: '계획 실패',
     cwd,
@@ -211,7 +197,7 @@ test('계획이 실패하면 조를 하나도 돌리지 않는다', async () => 
 }, 30_000)
 
 test('승인하지 않으면 조를 돌리지 않는다', async () => {
-  const cwd = repo()
+  const cwd = makeRepo('race')
   const summary = await runRace({
     intent: '승인 거부',
     cwd,
@@ -237,7 +223,7 @@ test('사용자가 끈 자기 확인은 race에서도 꺼져 있다', async () =
   // **회귀 방지**: RaceOptions에 execShell 자리가 없어 `--no-exec-shell`이 race에서만
   // 조용히 무시됐다. 사용자가 명시적으로 끈 안전장치를 도구가 되살리는 것은,
   // 옵션이 있다는 사실 자체를 못 믿게 만든다
-  const cwd = repo()
+  const cwd = makeRepo('race')
   const seen: (string[] | undefined)[] = []
   await runRace({
     intent: '자기 확인 끄기',
@@ -263,7 +249,7 @@ test('사용자가 끈 자기 확인은 race에서도 꺼져 있다', async () =
 test('조가 던져도 워크트리는 치워진다', async () => {
   // **회귀 방지**: 정리가 finally에 없어서, 조 하나가 던지면 임시 워크트리와 등록이
   // 그대로 남았다. git이 등록한 워크트리는 prune 없이 사라지지 않는다
-  const cwd = repo()
+  const cwd = makeRepo('race')
   await runRace({
     intent: '던지는 조',
     cwd,
@@ -287,7 +273,7 @@ test('버려진 제안 게이트가 race에서도 보고된다', async () => {
   // **회귀 방지**: race는 게이트를 자기가 병합하고 sharedPlan으로 넘기는데, dropped를
   // 함께 넘기지 않아 조의 저널에서 이 사실이 통째로 사라졌다. 버려진 게이트는 대개
   // 이름 충돌이고, 그것은 완료 기준이 흔들렸다는 신호다
-  const cwd = repo()
+  const cwd = makeRepo('race')
   await runRace({
     intent: '이름 충돌',
     cwd,

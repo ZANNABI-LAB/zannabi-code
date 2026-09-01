@@ -9,26 +9,14 @@
  * 여기서는 어댑터가 **실제로 받은 요청**을 추적 파일로 받아 대조한다.
  */
 import { test, expect } from 'bun:test'
-import { mkdtempSync, readFileSync, existsSync } from 'node:fs'
-import { tmpdir } from 'node:os'
+import { readFileSync, existsSync } from 'node:fs'
 import { join } from 'node:path'
 
-const CLI = join(import.meta.dir, '..', 'src', 'index.ts')
-
-function repo(): string {
-  const dir = mkdtempSync(join(tmpdir(), 'zannabi-race-cli-'))
-  Bun.spawnSync(['git', 'init', '-q', '-b', 'main', '.'], { cwd: dir })
-  Bun.spawnSync(['git', 'config', 'user.email', 'test@test'], { cwd: dir })
-  Bun.spawnSync(['git', 'config', 'user.name', 'test'], { cwd: dir })
-  Bun.spawnSync(['sh', '-c', 'echo base > base.txt'], { cwd: dir })
-  Bun.spawnSync(['git', 'add', '-A'], { cwd: dir })
-  Bun.spawnSync(['git', 'commit', '-qm', 'init'], { cwd: dir })
-  return dir
-}
+import { CLI, repo as makeRepo } from './_fixture'
 
 /** race를 CLI로 돌리고, 어댑터가 실제로 받은 요청들을 돌려준다 */
 async function raceWithTrace(extraArgs: string[]) {
-  const cwd = repo()
+  const cwd = makeRepo('race-cli')
   const trace = join(cwd, 'trace.jsonl')
   const proc = Bun.spawn(
     ['bun', CLI, 'race', '확인', '--arm', 'claude', '--arm', 'codex',

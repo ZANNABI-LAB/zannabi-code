@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { listRuns, resolveRun, readJournal, replay, JOURNAL_FILENAME, auditJournal, readJournalText } from '@zannabi-lab/core'
 
-const CLI = join(import.meta.dir, '..', 'src', 'index.ts')
+import { CLI } from './_fixture'
 
 function spawnRun(cwd: string, args: string[]) {
   return Bun.spawn(['bun', 'run', CLI, ...args, '--cwd', cwd], {

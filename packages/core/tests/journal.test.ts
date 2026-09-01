@@ -2,7 +2,8 @@ import { test, expect } from 'bun:test'
 import { mkdtempSync, readFileSync, rmSync, existsSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { runLoop, type LoopOptions } from '../src/loop'
+import { runLoop } from '../src/loop'
+import { loopOptions, type PartialOptions } from './_fixture'
 import { RunStore } from '../src/store'
 import { FakeAdapter, fakeResult } from '../src/testing'
 import { JOURNAL_FILENAME, parseJournal, CONTRACT_VERSION, type JournalEvent } from '../src/journal'
@@ -10,19 +11,7 @@ import { JOURNAL_FILENAME, parseJournal, CONTRACT_VERSION, type JournalEvent } f
 const planText = (cmd: string) =>
   `계획: 한다.\n\`\`\`json\n{"gates":[{"name":"g","cmd":"${cmd}"}]}\n\`\`\``
 
-function options(partial: Partial<LoopOptions> & { adapter: LoopOptions['adapter'] }): LoopOptions {
-  const cwd = partial.cwd ?? mkdtempSync(join(tmpdir(), 'zannabi-journal-'))
-  return {
-    intent: '테스트 작업',
-    userGates: [],
-    budget: 3,
-    cwd,
-    store: new RunStore(cwd, '테스트 작업'),
-    approve: async () => ({ action: 'approve' }),
-    log: () => {},
-    ...partial,
-  }
-}
+const options = (p: PartialOptions) => loopOptions('journal', p)
 
 function readJournal(store: RunStore): JournalEvent[] {
   return parseJournal(readFileSync(join(store.dir, JOURNAL_FILENAME), 'utf-8'))

@@ -4,26 +4,15 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import type { AgentResult, AgentAdapter } from '../src/adapter'
 import type { GateWarning } from '../src/gates'
-import { runLoop, type LoopOptions } from '../src/loop'
+import { runLoop } from '../src/loop'
+import { loopOptions, type PartialOptions } from './_fixture'
 import { RunStore, readJournal } from '../src/store'
 import { FakeAdapter, fakeResult } from '../src/testing'
 
 const planText = (cmd: string) =>
   `계획: 한다.\n\`\`\`json\n{"gates":[{"name":"g","cmd":"${cmd}"}]}\n\`\`\``
 
-function options(partial: Partial<LoopOptions> & { adapter: LoopOptions['adapter'] }): LoopOptions {
-  const cwd = mkdtempSync(join(tmpdir(), 'zannabi-loop-'))
-  return {
-    intent: '테스트 작업',
-    userGates: [],
-    budget: 3,
-    cwd,
-    store: new RunStore(cwd, '테스트 작업'),
-    approve: async () => ({ action: 'approve' }),
-    log: () => {},
-    ...partial,
-  }
-}
+const options = (p: PartialOptions) => loopOptions('loop', p)
 
 test('첫 시도에 게이트 통과 → success', async () => {
   const adapter = new FakeAdapter([fakeResult(planText('true')), fakeResult('했음')])

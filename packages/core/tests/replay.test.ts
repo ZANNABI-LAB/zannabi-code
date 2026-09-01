@@ -2,7 +2,8 @@ import { test, expect } from 'bun:test'
 import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { runLoop, type LoopOptions } from '../src/loop'
+import { runLoop } from '../src/loop'
+import { loopOptions, type PartialOptions } from './_fixture'
 import { RunStore } from '../src/store'
 import { FakeAdapter, fakeResult } from '../src/testing'
 import { JOURNAL_FILENAME, parseJournal } from '../src/journal'
@@ -11,19 +12,7 @@ import { replay, resumability } from '../src/replay'
 const planText = (cmd: string) =>
   `계획: 한다.\n\`\`\`json\n{"gates":[{"name":"g","cmd":"${cmd}"}]}\n\`\`\``
 
-function options(partial: Partial<LoopOptions> & { adapter: LoopOptions['adapter'] }): LoopOptions {
-  const cwd = partial.cwd ?? mkdtempSync(join(tmpdir(), 'zannabi-replay-'))
-  return {
-    intent: '테스트 작업',
-    userGates: [],
-    budget: 3,
-    cwd,
-    store: new RunStore(cwd, '테스트 작업'),
-    approve: async () => ({ action: 'approve' }),
-    log: () => {},
-    ...partial,
-  }
-}
+const options = (p: PartialOptions) => loopOptions('replay', p)
 
 /** 실제 실행의 저널을 그대로 읽는다 — 합성 이벤트로만 테스트하면 어휘가 실물과 갈린다 */
 function journalOf(store: RunStore): string {
