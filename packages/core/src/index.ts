@@ -1,6 +1,7 @@
 export * from './goal'
 export * from './revision'
 export * from './progress'
+export * from './remaining'
 export * from './recheck'
 export * from './profile'
 export * from './cost'

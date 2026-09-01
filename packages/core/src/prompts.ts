@@ -120,14 +120,41 @@ export function executePrompt(
 }
 
 /**
+ * 다음 라운드에 전할 말. **실패 로그가 아니라 남은 일 목록으로 시작한다.**
+ *
+ * 여기가 Phase 14의 자리다 — 예산은 "몇 번 더 시도할 수 있는가"만 말하지 **무엇이 남았는지**는
+ * 말하지 않는다. 게이트 실패는 그 자체로 "할 일 하나"의 객관 버전인데(gajae `ultragoal`의
+ * blocker와 달리 에이전트의 판단이 아니라 종료코드가 만든다), 지금까지는 stderr 더미로만
+ * 전달돼 목표가 아니라 증상으로 읽혔다.
+ *
  * `repeated`는 직전 라운드와 변경분·게이트 결과가 모두 같았다는 뜻이다.
  * 같은 접근을 한 번 더 시키는 것은 예산 낭비라, 그 사실을 프롬프트에 명시해 방향을 틀게 한다.
  */
-export function failureSummary(evidence: Evidence[], repeated = false): string {
+export function failureSummary(
+  evidence: Evidence[],
+  repeated = false,
+  work?: { open: string[]; closed: string[]; reopened: string[] },
+): string {
+  const head: string[] = []
+  if (work && work.open.length > 0) {
+    head.push(`REMAINING WORK — ${work.open.length} gate(s) still failing: ${work.open.join(', ')}`)
+    if (work.closed.length > 0) head.push(`Closed in the last round: ${work.closed.join(', ')}`)
+    /**
+     * 회귀는 남은 일 **개수**로는 드러나지 않는다 — 하나를 풀며 하나를 깨면 개수가 그대로다.
+     * 그런데 그때 필요한 행동은 "계속 고치기"가 아니라 "접근을 다시 보기"라 따로 말한다.
+     */
+    if (work.reopened.length > 0)
+      head.push(
+        `⚠️ REGRESSION: ${work.reopened.join(', ')} passed in the previous round and fail now.` +
+          ' Your last change fixed one thing and broke another — reconsider the approach' +
+          ' instead of patching forward.',
+      )
+  }
   const body = evidence
     .filter(e => e.outcome !== 'pass')
     .map(e => `[${e.gate}] ${e.cmd} → exit ${e.exitCode}\n${e.stderrTail || e.stdoutTail}`)
     .join('\n\n')
-  if (!repeated) return body
-  return `${body}\n\nNOTE: your last attempt changed no files and produced identical gate results.\nRepeating the same approach will not help — diagnose why the fix is not taking effect, or try a different approach.`
+  const summary = head.length > 0 ? `${head.join('\n')}\n\n${body}` : body
+  if (!repeated) return summary
+  return `${summary}\n\nNOTE: your last attempt changed no files and produced identical gate results.\nRepeating the same approach will not help — diagnose why the fix is not taking effect, or try a different approach.`
 }

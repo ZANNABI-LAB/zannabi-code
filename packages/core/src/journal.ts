@@ -235,6 +235,19 @@ export const JournalEventSchema = z.discriminatedUnion('type', [
     repeatOf: z.number().int().positive().optional(),
     /** 이 라운드에서 모든 게이트가 통과했는지 — 재생 없이 카드 한 장을 그리는 데 쓰인다 */
     allPass: z.boolean(),
+    /**
+     * 이 라운드를 마치고 **아직 통과하지 못한 게이트**.
+     *
+     * `allPass`만으로는 "5개 중 4개를 닫은 라운드"와 "5개 다 실패한 라운드"가 같아 보인다.
+     * 읽는 쪽이 증거 파일까지 열지 않고도 진전을 말할 수 있어야 하므로 여기 싣는다.
+     * **옛 저널에는 없다** — 이 축이 생기기 전 실행을 재생할 때 비어 있는 것과
+     * "남은 일이 없다"는 구별되어야 하므로 optional이다.
+     */
+    open: z.array(z.string()).optional(),
+    /** 이번 라운드에 처음 통과한 게이트 */
+    closed: z.array(z.string()).optional(),
+    /** 앞 라운드에서 통과했다가 다시 실패한 게이트 — 고치다 깬 자리 */
+    reopened: z.array(z.string()).optional(),
   }),
   /**
    * 보고된 누적 지출이 갱신됐다.

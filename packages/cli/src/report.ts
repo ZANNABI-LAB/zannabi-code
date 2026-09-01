@@ -1,5 +1,5 @@
 import {
-  addUsage, emptyUsage, CONFIG_FILENAME,
+  addUsage, emptyUsage, CONFIG_FILENAME, remainingWork,
   type Claim, type ConfigChange, type JournalAudit, type EvidenceLoss, type LoopResult, type SelfCheck, type Usage,
 } from '@zannabi-lab/core'
 import { duration } from './status'
@@ -183,6 +183,23 @@ export function buildReport(
   // 증거가 어느 리비전 위의 것인지. 이게 없으면 report는 재현 불가능한 주장이 된다
   const head = result.rounds.at(-1)?.revision.head
   if (head) lines.push(`- **head**: \`${head}\``)
+  /**
+   * **남은 일.** `attempts 4 / budget-exhausted`는 "네 번 시도하고 끝났다"만 말하지
+   * **무엇이 남았는지**는 말하지 않는다. 게이트 5개 중 4개를 닫고 끝난 실행과
+   * 하나도 못 닫은 실행이 같은 두 줄로 보였다 — 사람이 이어서 할 때 필요한 것은 그 차이다.
+   */
+  const work = remainingWork(result.rounds)
+  if (work.open.length > 0) {
+    lines.push(`- **remaining**: ${work.open.length}건 — ${work.open.map(g => `\`${g}\``).join(', ')}`)
+    if (work.closed.length > 0)
+      lines.push(`- **closed**: 마지막 라운드에 ${work.closed.map(g => `\`${g}\``).join(', ')}`)
+    // 되열림은 개수로 안 드러난다 — 하나를 풀며 하나를 깨면 남은 일 수가 그대로다
+    if (work.reopened.length > 0)
+      lines.push(
+        `- ⚠️ **reopened**: ${work.reopened.map(g => `\`${g}\``).join(', ')}` +
+          ` — 앞 라운드에서 통과했다가 다시 실패했다. 고치다 깬 자리다`,
+      )
+  }
   // 실패 사유를 리포트에 싣는다 — transcript.jsonl을 파싱하지 않아도 원인이 보이게
   if (result.detail) lines.push(`- **detail**: ${result.detail}`)
   // 예산 소진으로 끝난 실행을 나중에 읽을 때, 정체 감지가 안 걸린 것인지 못 걸린 것인지 갈린다
@@ -215,6 +232,23 @@ export function buildReport(
     // 실패 원인을 리포트에서 바로 읽게 한다. tail은 통과 로그에 밀려 원인이 잘리므로
     // 여기 실리는 것은 꼬리가 아니라 추려낸 신호다
     for (const signal of e.signals ?? []) lines.push(`  - \`${signal}\``)
+  }
+
+  /**
+   * **라운드마다 남은 일이 어떻게 줄었나.** 라운드가 하나면 그릴 것이 없다.
+   *
+   * 이 표가 없으면 "예산을 다 썼다"는 사실만 남고 **어디까지 갔는지**가 사라진다 —
+   * 5→3→3으로 끝난 실행과 5→5→5로 끝난 실행은 이어서 할 사람에게 전혀 다른 상황이다.
+   */
+  if (result.rounds.length > 1) {
+    lines.push(``, `## 라운드별 남은 일`, ``, `| 라운드 | 남은 일 | 닫힘 | 되열림 |`, `|---|---|---|---|`)
+    for (let i = 0; i < result.rounds.length; i++) {
+      const w = remainingWork(result.rounds.slice(0, i + 1))
+      lines.push(
+        `| ${result.rounds[i]!.round} | ${w.open.length === 0 ? '— 없음' : `${w.open.length}건: ${w.open.join(', ')}`}` +
+          ` | ${w.closed.join(', ') || '·'} | ${w.reopened.join(', ') || '·'} |`,
+      )
+    }
   }
 
   // 재확인에서 갈린 게이트의 회차별 결과. status 한 줄로는 간헐인지 결정론인지 구별되지 않는다

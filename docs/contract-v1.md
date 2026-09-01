@@ -65,7 +65,7 @@ append-only JSONL. **한 파일이 세 가지를 겸한다** — tail하면 실�
 | `gate-started` | 게이트 하나 시작 | `round` `phase`(verify/recheck) `gate` `cmd` |
 | `gate-result` | 게이트 하나 종료 | `round` `phase`(verify/recheck) `evidence` |
 | `recheck-suppressed` | 재확인 판정의 한 축을 껐음 | `round` `cause` `suppressed` |
-| `round-finished` | 라운드 종료 | `round` `revision` `repeatOf?` `allPass` |
+| `round-finished` | 라운드 종료 | `round` `revision` `repeatOf?` `allPass` `open?` `closed?` `reopened?` |
 | `cost-updated` | 누적 지출 갱신 | `plan` `exec` `spentUsd?` `coverage?` |
 | `evidence-lost` | 증거가 사라짐 | `target` |
 | `run-finished` | 실행 종료 | `status` `attempts` `detail?` |
@@ -151,6 +151,17 @@ append-only JSONL. **한 파일이 세 가지를 겸한다** — tail하면 실�
    이 상태를 "중단"으로 읽으면 살아 있는 실행이 전부 죽은 것으로 보인다 —
    이 러너의 `status`가 실제로 그 버그를 냈다. 진행 중임을 말하되, 그 라운드의 게이트
    결과는 **판정의 근거로 세지 않는다**.
+
+7. **`allPass`만으로 진전을 말하지 말 것.** 게이트 5개 중 4개를 닫은 라운드와 하나도 못 닫은
+   라운드가 `allPass: false`로 같다. `open`(아직 통과하지 못한 게이트)·`closed`(이번에 닫힌 것)·
+   `reopened`(앞 라운드에서 통과했다가 다시 실패한 것)가 그 차이를 말한다.
+   **`reopened`는 개수로 드러나지 않는다** — 하나를 풀며 하나를 깨면 `open`의 크기가 그대로다.
+   셋 다 optional인 이유는 이 축이 생기기 전 저널이 있기 때문이다. **없는 것과 빈 것은 다르다** —
+   없으면 "그 실행은 이 축을 몰랐다"이지 "남은 일이 0"이 아니다.
+
+> ⚠️ **`open`이 줄지 않는 것을 정체로 판정하지 말 것.** 그럴듯하지만 이 러너의 실측이
+> 반증한 규칙이다 — 게이트 결과가 같은 2라운드 뒤에 진전한 표본이 있다. 이 세 필드는
+> **화면을 위한 것이지 판정을 위한 것이 아니다.** 러너 자신도 종료 조건에 쓰지 않는다.
 
 `zannabi status`가 이 규칙들의 레퍼런스 구현이다 — **저널만 읽고 다른 파일은 열지 않는다.**
 

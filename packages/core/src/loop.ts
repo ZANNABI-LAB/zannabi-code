@@ -6,6 +6,7 @@ import { planPrompt, executePrompt, failureSummary } from './prompts'
 import { captureRevision } from './revision'
 import { roundSignature, repeatOf, shouldStop, stallDetectionDead, DEFAULT_STALL_LIMIT } from './progress'
 import { recheckGates, recheckSuspects, suppressedByCold, DEFAULT_VERIFY_REPEAT } from './recheck'
+import { remainingWork } from './remaining'
 import {
   checkCost,
   costCoverage,
@@ -340,7 +341,7 @@ function withActualModel(label: string | undefined, reported?: string): string |
 function resumeFeedback(rounds: Round[]): string | undefined {
   const last = rounds[rounds.length - 1]
   if (!last || last.evidence.every(e => e.outcome === 'pass')) return undefined
-  return failureSummary(last.evidence, last.repeatOf !== undefined)
+  return failureSummary(last.evidence, last.repeatOf !== undefined, remainingWork(rounds))
 }
 
 async function runLoopWith(
@@ -691,13 +692,26 @@ async function runLoopWith(
     const round: Round = { round: attempt, revision, evidence, repeatOf: repeatOf(rounds, signature) }
     rounds.push(round)
     opts.store.writeEvidence(rounds)
+    // 남은 일은 라운드가 쌓인 뒤에 센다 — 앞 라운드와 견줘야 무엇이 닫히고 되열렸는지 나온다
+    const work = remainingWork(rounds)
     opts.store.appendJournal({
       type: 'round-finished',
       round: attempt,
       revision,
       ...(round.repeatOf === undefined ? {} : { repeatOf: round.repeatOf }),
       allPass: evidence.every(e => e.outcome === 'pass'),
+      open: work.open,
+      ...(work.closed.length > 0 ? { closed: work.closed } : {}),
+      ...(work.reopened.length > 0 ? { reopened: work.reopened } : {}),
     })
+    if (work.open.length > 0) {
+      // 진전을 화면에 남긴다 — "라운드 실패"만으로는 4개를 닫은 라운드와 하나도 못 닫은
+      // 라운드가 같아 보인다
+      const parts = [`남은 일 ${work.open.length}건 (${work.open.join(', ')})`]
+      if (work.closed.length > 0) parts.push(`이번에 닫은 것 ${work.closed.length}건: ${work.closed.join(', ')}`)
+      if (work.reopened.length > 0) parts.push(`⚠️ 되열린 것: ${work.reopened.join(', ')}`)
+      opts.log(parts.join(' · '))
+    }
     if (round.repeatOf !== undefined)
       opts.log(`라운드 ${attempt}: 변경분과 게이트 결과가 라운드 ${round.repeatOf}과 동일`)
 
@@ -798,7 +812,7 @@ async function runLoopWith(
         detail: `${stallLimit}라운드 연속으로 변경분과 게이트 결과가 동일합니다 (diff ${revision.diffHash})`,
       }
 
-    feedback = failureSummary(evidence, round.repeatOf !== undefined)
+    feedback = failureSummary(evidence, round.repeatOf !== undefined, work)
   }
   return {
     status: 'budget-exhausted',

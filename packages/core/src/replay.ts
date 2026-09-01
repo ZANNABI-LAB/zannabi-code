@@ -49,6 +49,11 @@ export interface ReplayState {
   /** 승인된 게이트. 승인 전이면 제안된 상태의 것 */
   gates: Gate[]
   approved?: boolean
+  /**
+   * 마지막으로 끝난 라운드가 남긴 일 — 아직 통과하지 못한 게이트와, 그 라운드에
+   * 닫히거나 되열린 것. **옛 저널에는 없다**(이 축이 생기기 전 실행).
+   */
+  remaining?: { open: string[]; closed: string[]; reopened: string[] }
 
   /** **완료된** 라운드만. 중단된 라운드는 여기 없다 — 재개는 이 다음부터 간다 */
   rounds: ReplayRound[]
@@ -227,6 +232,14 @@ export function replay(events: JournalEvent[]): ReplayState {
           ...(event.repeatOf === undefined ? {} : { repeatOf: event.repeatOf }),
           allPass: event.allPass,
         })
+        // 저널이 직접 말한 남은 일을 그대로 옮긴다 — 증거에서 다시 세지 않는다.
+        // 증거가 유실돼도 저널 줄은 남으므로, 화면이 기댈 곳은 이쪽이 옳다
+        if (event.open)
+          state.remaining = {
+            open: event.open,
+            closed: event.closed ?? [],
+            reopened: event.reopened ?? [],
+          }
         open = undefined
         state.runningGate = undefined
         break

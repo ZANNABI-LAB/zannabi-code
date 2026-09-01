@@ -204,6 +204,19 @@ export function renderStatus(
     if (state.runningGate) lines.push(`     ⏳ ${state.runningGate} 실행 중`)
   }
 
+  /**
+   * **남은 일.** 예산 잔량은 "몇 번 더 시도할 수 있는가"만 말하고 **무엇이 남았는지**는
+   * 말하지 않는다. 게이트 5개 중 4개를 닫은 라운드와 하나도 못 닫은 라운드가
+   * `라운드 2/4 완료` 한 줄에서는 같아 보인다.
+   */
+  const work = state.remaining
+  if (work && work.open.length > 0) {
+    lines.push(`남은 일: ${work.open.length}건 (${work.open.join(', ')})`)
+    if (work.closed.length > 0) lines.push(`  ✅ 지난 라운드에 닫힘: ${work.closed.join(', ')}`)
+    // 되열린 것은 개수로 드러나지 않는다 — 하나를 풀며 하나를 깨면 "남은 일 1건"이 그대로다
+    if (work.reopened.length > 0) lines.push(`  ⚠️ 되열림: ${work.reopened.join(', ')} — 고치다 깬 자리입니다`)
+  }
+
   const cost = costLine(state)
   if (cost) lines.push(cost)
 
