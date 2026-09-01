@@ -81,42 +81,35 @@ export class TelegramBot {
    * 알 수 없다 — 이스케이프를 아무리 해도 이 안전망은 있어야 한다.
    */
   async send(chatId: string, text: string, opts: SendOptions = {}): Promise<number> {
-    const body: Record<string, unknown> = {
+    const sent = await this.write('sendMessage', {
       chat_id: chatId,
       disable_web_page_preview: true,
       ...(opts.buttons ? { reply_markup: keyboard(opts.buttons) } : {}),
-    }
-    if (opts.html) {
-      try {
-        const sent = await this.call('sendMessage', {
-          ...body,
-          text: clamp(text),
-          parse_mode: 'HTML',
-        })
-        return (sent as { message_id: number }).message_id
-      } catch (err) {
-        if (!(err instanceof TelegramError)) throw err
-        // 파싱 실패로 보이면 서식을 버리고 한 번 더. 그 밖의 오류(401·429)는 다시 시도해도 같다
-        if (!/parse|entity|tag/i.test(err.message)) throw err
-      }
-    }
-    const sent = await this.call('sendMessage', { ...body, text: clamp(stripTags(text)) })
+    }, text, opts.html === true)
     return (sent as { message_id: number }).message_id
   }
 
   /** 이미 보낸 메시지를 고쳐 쓴다 — 승인이 끝난 뒤 버튼을 지우고 결과를 그 자리에 적는다 */
   async edit(chatId: string, messageId: number, text: string, opts: SendOptions = {}): Promise<void> {
-    const body: Record<string, unknown> = {
+    await this.write('editMessageText', {
       chat_id: chatId,
       message_id: messageId,
-      ...(opts.buttons ? { reply_markup: keyboard(opts.buttons) } : { reply_markup: { inline_keyboard: [] } }),
+      // 버튼을 안 주면 지운다 — 지나간 요청의 버튼이 남아 있으면 다시 눌린다
+      reply_markup: opts.buttons ? keyboard(opts.buttons) : { inline_keyboard: [] },
+    }, text, opts.html === true)
+  }
+
+  /** 서식으로 한 번, 실패하면 서식 없이 한 번. `send`와 `edit`이 같은 규칙을 쓴다 */
+  private async write(method: string, body: Record<string, unknown>, text: string, html: boolean) {
+    if (html) {
+      try {
+        return await this.call(method, { ...body, text: clamp(text), parse_mode: 'HTML' })
+      } catch (err) {
+        // 파싱 실패로 보일 때만 물러선다. 그 밖의 오류(401·429)는 다시 보내도 같은 답이다
+        if (!(err instanceof TelegramError) || !/parse|entity|tag/i.test(err.message)) throw err
+      }
     }
-    try {
-      await this.call('editMessageText', { ...body, text: clamp(text), ...(opts.html ? { parse_mode: 'HTML' } : {}) })
-    } catch (err) {
-      if (!(err instanceof TelegramError) || !/parse|entity|tag/i.test(err.message)) throw err
-      await this.call('editMessageText', { ...body, text: clamp(stripTags(text)) })
-    }
+    return this.call(method, { ...body, text: clamp(stripTags(text)) })
   }
 
   /** 버튼의 로딩 스피너를 멈춘다. 이걸 안 하면 누른 쪽 화면이 계속 도는 것처럼 보인다 */

@@ -52,6 +52,11 @@ export function acquirePollLock(token: string, opts: { dir?: string; now?: Date 
     since: (opts.now ?? new Date()).toISOString(),
   }
 
+  const taken = (): LockResult => {
+    const holder = readHolder(path)
+    return { ok: false, path, ...(holder ? { holder } : {}) }
+  }
+
   for (let attempt = 0; attempt < 2; attempt++) {
     try {
       // `wx`는 파일이 있으면 실패한다 — 검사와 생성이 한 번의 시스템 콜이라
@@ -60,8 +65,7 @@ export function acquirePollLock(token: string, opts: { dir?: string; now?: Date 
       return { ok: true, path, release: () => releaseIfMine(path, mine) }
     } catch (err) {
       if ((err as NodeJS.ErrnoException).code !== 'EEXIST') throw err
-      const holder = readHolder(path)
-      if (!isStale(path, holder, opts.now ?? new Date())) return { ok: false, path, ...(holder ? { holder } : {}) }
+      if (!isStale(path, readHolder(path), opts.now ?? new Date())) return taken()
       // 주인이 죽었다 — 치우고 한 번만 더 시도한다. 무한 재시도는 두 프로세스가
       // 서로의 락을 지우며 도는 상황을 만들 수 있다
       try {
@@ -71,7 +75,7 @@ export function acquirePollLock(token: string, opts: { dir?: string; now?: Date 
       }
     }
   }
-  return { ok: false, path, ...(readHolder(path) ? { holder: readHolder(path)! } : {}) }
+  return taken()
 }
 
 /** 락 파일이 **내 것일 때만** 지운다. 남의 락을 지우면 그 프로세스가 폴링 중에 짝을 잃는다 */
@@ -121,7 +125,7 @@ function isStale(path: string, holder: LockHolder | undefined, now: Date): boole
   }
 }
 
-export function defaultLockDir(): string {
+function defaultLockDir(): string {
   return join(homedir(), '.zannabi', 'locks')
 }
 

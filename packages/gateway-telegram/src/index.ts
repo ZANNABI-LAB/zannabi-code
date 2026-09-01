@@ -4,7 +4,7 @@ import { TelegramBot, TelegramError, MAX_MESSAGE_LEN, truncate, escapeHtml } fro
 import { acquirePollLock, describeHolder } from './lock'
 
 export { TelegramBot, TelegramError, truncate, escapeHtml, stripTags, MAX_MESSAGE_LEN } from './telegram'
-export { acquirePollLock, defaultLockDir, fingerprint, describeHolder, STALE_MS } from './lock'
+export { acquirePollLock, fingerprint, describeHolder, STALE_MS } from './lock'
 export type { LockHolder, LockResult } from './lock'
 export type { TelegramMessage, TelegramCallback, Incoming, InlineButton } from './telegram'
 
@@ -192,20 +192,20 @@ async function ask(
          * 버튼을 텍스트보다 안전하게 만드는 지점이다.
          */
         if (item.messageId !== messageId) {
-          await quiet(bot, opts, () => bot.answerCallback(item.callbackId, '지나간 요청입니다'))
+          await quiet(opts, () => bot.answerCallback(item.callbackId, '지나간 요청입니다'))
           continue
         }
         if (item.data === DATA_APPROVE) {
-          await quiet(bot, opts, () => bot.answerCallback(item.callbackId, '승인했습니다'))
+          await quiet(opts, () => bot.answerCallback(item.callbackId, '승인했습니다'))
           await settle('✅ <b>승인했습니다 — 실행을 시작합니다</b>')
           return { action: 'approve' }
         }
         if (item.data === DATA_ABORT) {
-          await quiet(bot, opts, () => bot.answerCallback(item.callbackId, '중단합니다'))
+          await quiet(opts, () => bot.answerCallback(item.callbackId, '중단합니다'))
           await settle('🛑 <b>중단했습니다</b>')
           return { action: 'abort', reason: '사람이 승인하지 않음 (텔레그램)' }
         }
-        await quiet(bot, opts, () => bot.answerCallback(item.callbackId))
+        await quiet(opts, () => bot.answerCallback(item.callbackId))
         continue
       }
 
@@ -227,8 +227,8 @@ async function ask(
        */
       if (!nudged) {
         nudged = true
-        await quiet(bot, opts, () =>
-          bot.send(opts.chatId, '위 메시지의 버튼을 누르거나, "y"·"n"으로 답해 주세요.').then(() => {}),
+        await quiet(opts, () =>
+          bot.send(opts.chatId, '위 메시지의 버튼을 누르거나, "y"·"n"으로 답해 주세요.'),
         )
       }
     }
@@ -253,7 +253,7 @@ async function drain(bot: TelegramBot, maxRounds = 10): Promise<number> {
 }
 
 /** 곁가지 호출은 실패해도 승인 판단을 뒤집지 않는다 — 이미 정해진 결정을 전하는 것뿐이다 */
-async function quiet(bot: TelegramBot, opts: TelegramApprovalOptions, fn: () => Promise<void>) {
+async function quiet(opts: TelegramApprovalOptions, fn: () => Promise<unknown>) {
   try {
     await fn()
   } catch (err) {
@@ -319,15 +319,13 @@ export function compose(
     tail.push(`<i>⏱ ${Math.round(timeoutMs / 1000)}초 안에 답이 없으면 중단합니다</i>`)
   }
 
-  const headText = head.join('\n')
-  const tailText = tail.join('\n')
-  const wrapper = `${headText}\n\n<b>📝 계획</b>\n<blockquote expandable></blockquote>\n\n${tailText}`
-  const room = MAX_MESSAGE_LEN - wrapper.length
-  const body = stripGateBlock(plan)
-  if (room < 200) return `${headText}\n\n<i>계획 본문은 터미널에 있습니다</i>\n\n${tailText}`
+  const render = (middle: string) => `${head.join('\n')}\n\n${middle}\n\n${tail.join('\n')}`
+  const quote = (body: string) => `<b>📝 계획</b>\n<blockquote expandable>${body}</blockquote>`
+  // 계획에 내줄 수 있는 자리 = 전체 한도 - 나머지가 이미 쓴 만큼
+  const room = MAX_MESSAGE_LEN - render(quote('')).length
+  if (room < 200) return render('<i>계획 본문은 터미널에 있습니다</i>')
   // 이스케이프가 길이를 늘리므로 자르는 것은 이스케이프한 뒤에 한다
-  const quoted = truncate(escapeHtml(body), room)
-  return `${headText}\n\n<b>📝 계획</b>\n<blockquote expandable>${quoted}</blockquote>\n\n${tailText}`
+  return render(quote(truncate(escapeHtml(stripGateBlock(plan)), room)))
 }
 
 function message(err: unknown): string {

@@ -21,7 +21,7 @@ import { renderStatus, renderRunLine } from './status'
 import { runRace, renderRace, RACES_DIR } from './race'
 import { ClaudeAdapter } from '@zannabi-lab/adapter-claude'
 import { CodexAdapter } from '@zannabi-lab/adapter-codex'
-import { approveViaTelegram } from '@zannabi-lab/gateway-telegram'
+import { approveViaTelegram, type ApproveFn } from '@zannabi-lab/gateway-telegram'
 
 const AGENTS = ['claude', 'codex'] as const
 type AgentName = (typeof AGENTS)[number]
@@ -384,7 +384,7 @@ async function main() {
    * 꽂든 저널에는 `approval-requested`/`approval-resolved`가 같은 모양으로 남는다.
    * 채널을 늘리는 데 core 수정이 필요 없다는 것이 파일 계약의 값이다.
    */
-  const approve = ((): typeof approveViaTerminal => {
+  const approve = ((): ApproveFn => {
     const channel = values.approve ?? 'terminal'
     if (channel === 'terminal') return values.yes ? approveAutomatically : approveViaTerminal
     if (channel !== 'telegram') {
